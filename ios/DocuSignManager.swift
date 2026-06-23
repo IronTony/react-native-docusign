@@ -543,6 +543,16 @@ internal final class DocuSignManager: NSObject {
     }
     _ = pendingResolved // silence unused-warning; kept for future telemetry
 
+    // DSMManager APIs (clearAllWebCookies, logout) must run on the main thread.
+    // Expo async functions are dispatched on AsyncFunctionQueue (non-main), so
+    // we must hop to main before touching any DSMManager API.
+    guard Thread.isMainThread else {
+      DispatchQueue.main.async { [weak self] in
+        self?.endSigningSession(completion: completion)
+      }
+      return
+    }
+
     clearWebCookiesAsync { [weak self] in
       guard let self = self else {
         completion()
