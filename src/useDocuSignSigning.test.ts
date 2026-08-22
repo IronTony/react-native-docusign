@@ -295,3 +295,75 @@ describe('useDocuSignSigning', () => {
     expect(result.current.state).toBe(SIGNING_STATE.COMPLETED);
   });
 });
+
+describe('useDocuSignSigning launchStrategy', () => {
+  const sessionWithout = {
+    type: 'session',
+    accessToken: 'token',
+    envelopeId: 'env-1',
+    recipientUserName: 'r',
+    recipientEmail: 'r@example.com',
+    recipientClientUserId: 'client-1',
+  } as const;
+
+  const startWith = async (
+    session: Parameters<
+      ReturnType<typeof useDocuSignSigning>['startSigning']
+    >[0],
+  ) => {
+    const { result } = renderHook(() => useDocuSignSigning({ config }));
+
+    await waitFor(() => {
+      expect(result.current.state).toBe(SIGNING_STATE.READY);
+    });
+
+    await act(async () => {
+      await result.current.startSigning(session);
+    });
+  };
+
+  it('omits launchStrategy from the native call when the caller does not set it', async () => {
+    await startWith(sessionWithout);
+
+    const params = mockedApi.presentCaptiveSigning.mock.calls[0][0];
+
+    expect(params).toEqual({
+      envelopeId: 'env-1',
+      recipientUserName: 'r',
+      recipientEmail: 'r@example.com',
+      recipientClientUserId: 'client-1',
+    });
+    expect('launchStrategy' in params).toBe(false);
+  });
+
+  it('forwards launchStrategy signingUrl to the native call', async () => {
+    await startWith({ ...sessionWithout, launchStrategy: 'signingUrl' });
+
+    expect(mockedApi.presentCaptiveSigning).toHaveBeenCalledWith(
+      expect.objectContaining({ launchStrategy: 'signingUrl' }),
+    );
+  });
+
+  it('forwards an explicit launchStrategy fetch unchanged', async () => {
+    await startWith({ ...sessionWithout, launchStrategy: 'fetch' });
+
+    expect(mockedApi.presentCaptiveSigning).toHaveBeenCalledWith(
+      expect.objectContaining({ launchStrategy: 'fetch' }),
+    );
+  });
+
+  it('does not forward launchStrategy on the url flow', async () => {
+    await startWith({
+      type: 'url',
+      signingUrl: 'https://example.com/sign',
+      envelopeId: 'env-2',
+    });
+
+    expect(mockedApi.presentCaptiveSigning).not.toHaveBeenCalled();
+    expect(mockedApi.presentCaptiveSigningWithUrl).toHaveBeenCalledWith({
+      signingUrl: 'https://example.com/sign',
+      envelopeId: 'env-2',
+      recipientId: undefined,
+    });
+  });
+});

@@ -331,6 +331,7 @@ type CaptiveSigningParams = {
   recipientUserName: string;
   recipientEmail: string;
   recipientClientUserId: string;
+  launchStrategy?: 'fetch' | 'signingUrl'; // Android only, default 'fetch'
 };
 
 type SigningResult = {
@@ -346,10 +347,33 @@ type SigningResult = {
 - `envelopeId`: the DocuSign envelope ID created by your backend
 - `recipientUserName`, `recipientEmail`: must match the recipient registered on the envelope
 - `recipientClientUserId`: the `clientUserId` of the embedded recipient, used by DocuSign to identify captive signers
+- `launchStrategy`: how the Android SDK opens the ceremony, see [Android launch strategies](#android-launch-strategies). Ignored on iOS.
 
 **Throws:** rejects with `signing_failed` if the SDK fails to present the signing UI (e.g. not initialized, not logged in, invalid envelope).
 
 **Returns:** resolves with a `SigningResult` once the user completes or cancels. `status === 'completed'` means the user finished the signing ceremony. `status === 'cancelled'` means the user explicitly cancelled or closed the signing UI.
+
+#### Android launch strategies
+
+The Android SDK can open a captive signing ceremony two ways, and `launchStrategy` picks between them. It has no effect on iOS.
+
+`'fetch'` is the default and matches every release before this option existed. The SDK downloads the envelope with `include=documents` and then opens the ceremony. That download runs on a read timeout derived from the envelope size, which floors at 15 seconds when nothing is cached, so a large envelope on a slow connection can exhaust it and the ceremony never opens.
+
+`'signingUrl'` skips the download. The module mints a recipient view with the session access token (`POST /accounts/{accountId}/envelopes/{envelopeId}/views/recipient`) and points the SDK straight at the returned URL, so the call that times out never runs.
+
+```ts
+await presentCaptiveSigning({
+  envelopeId,
+  recipientUserName,
+  recipientEmail,
+  recipientClientUserId,
+  launchStrategy: 'signingUrl',
+});
+```
+
+Before opting in, check that the access token you pass to `loginWithAccessToken` is scoped to create recipient views on the envelope. If the mint fails the module falls back to `'fetch'`, so the worst case is a wasted round trip per ceremony rather than a failure, but there is no point paying for it if the token cannot mint.
+
+If your backend already mints recipient view URLs, prefer `presentCaptiveSigningWithUrl` instead. It keeps the DocuSign access token off the device entirely, which is the better shape. `'signingUrl'` exists for teams who cannot change their backend.
 
 ### `presentCaptiveSigningWithUrl(params: CaptiveSigningUrlParams): Promise<SigningResult>`
 
