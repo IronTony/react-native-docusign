@@ -34,11 +34,30 @@ export type DocuSignAccountInfo = {
   email: string;
 };
 
+/**
+ * How the Android SDK opens the signing ceremony.
+ *
+ * `fetch` downloads the envelope first. That download runs on a size-derived
+ * read timeout which floors at 15s when nothing is cached, so it can time out
+ * on large envelopes.
+ *
+ * `signingUrl` mints a recipient view with the session access token and points
+ * the SDK straight at it, skipping the download. Requires the token to be
+ * scoped to create recipient views on the envelope; if the mint fails it falls
+ * back to `fetch`.
+ */
+export type CaptiveSigningLaunchStrategy = 'fetch' | 'signingUrl';
+
 export type CaptiveSigningParams = {
   envelopeId: string;
   recipientUserName: string;
   recipientEmail: string;
   recipientClientUserId: string;
+  /**
+   * Android only, ignored on iOS. Defaults to `fetch`, which is the behaviour
+   * of every release before this option existed.
+   */
+  launchStrategy?: CaptiveSigningLaunchStrategy;
 };
 
 export type CaptiveSigningUrlParams = {

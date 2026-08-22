@@ -11,10 +11,12 @@ import com.docusign.androidsdk.listeners.DSAuthenticationListener
 import com.docusign.androidsdk.listeners.DSCaptiveSigningListener
 import com.docusign.androidsdk.listeners.DSLogoutListener
 import com.docusign.androidsdk.util.DSMode
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
+import org.json.JSONObject
 
 internal enum class DocuSignEnvironment(val value: String) {
   DEMO("demo"),
@@ -25,6 +27,28 @@ internal enum class DocuSignEnvironment(val value: String) {
       values().firstOrNull { it.value == value } ?: DEMO
   }
 }
+
+internal enum class CaptiveSigningLaunchStrategy(val value: String) {
+  FETCH("fetch"),
+  SIGNING_URL("signingUrl");
+
+  companion object {
+    fun fromString(value: String): CaptiveSigningLaunchStrategy =
+      values().firstOrNull { it.value == value }
+        ?: FETCH.also {
+          if (value.isNotEmpty()) {
+            android.util.Log.w("DocuSign", "unknown launchStrategy '$value', falling back to fetch")
+          }
+        }
+  }
+}
+
+/** Credentials the signing-URL strategy needs to mint a recipient view. */
+internal data class DocuSignSession(
+  val accessToken: String,
+  val accountId: String,
+  val host: String
+)
 
 internal data class SigningOutcome(
   val status: String,
@@ -48,6 +72,9 @@ internal object DocuSignManager {
   @Volatile private var integratorKey: String = ""
   @Volatile private var environment: DocuSignEnvironment = DocuSignEnvironment.DEMO
   @Volatile private var currentEnvelopeId: String? = null
+  // One reference, not three fields: a login racing an in-flight mint would otherwise tear the
+  // triple and build a request with one session's token and another's account id.
+  @Volatile private var session: DocuSignSession? = null
   private val pendingCompletion = AtomicReference<((Result<SigningOutcome>) -> Unit)?>(null)
 
   private enum class UserInfoProbe { OK, UNAUTHORIZED, NETWORK }
@@ -95,6 +122,8 @@ internal object DocuSignManager {
       completion(Result.failure(NotInitializedException()))
       return
     }
+
+    session = DocuSignSession(accessToken = accessToken, accountId = accountId, host = host)
 
     try {
       DocuSign.getInstance().getAuthenticationDelegate().login(
@@ -183,6 +212,10 @@ internal object DocuSignManager {
     val ctx = appContext
     if (!isInitialized || ctx == null) return
     hasLoggedIn = false
+    // The signing-URL strategy holds these between login and present, which is longer than this
+    // object retained a token for before. Drop them on the way out so a signed-out process is not
+    // sitting on a bearer token; the next login repopulates them.
+    session = null
     try {
       DocuSign.getInstance().getAuthenticationDelegate().logout(
         ctx,
@@ -257,6 +290,7 @@ internal object DocuSignManager {
     recipientUserName: String,
     recipientEmail: String,
     recipientClientUserId: String,
+    launchStrategy: CaptiveSigningLaunchStrategy,
     completion: (Result<SigningOutcome>) -> Unit
   ) {
     if (!isInitialized) {
@@ -275,47 +309,66 @@ internal object DocuSignManager {
     }
     currentEnvelopeId = envelopeId
 
+    val listener = object : DSCaptiveSigningListener {
+      override fun onStart(envelopeId: String) {}
+
+      override fun onSuccess(envelopeId: String) {
+        handleSigningCompleted(envelopeId)
+      }
+
+      override fun onCancel(envelopeId: String, recipientId: String) {
+        handleSigningCancelled(envelopeId, null)
+      }
+
+      override fun onError(envelopeId: String?, exception: DSSigningException) {
+        handleSigningError(envelopeId, "signing_failed", exception.message ?: "Unknown error")
+      }
+
+      override fun onRecipientSigningSuccess(envelopeId: String, recipientId: String) {}
+
+      override fun onRecipientSigningError(
+        envelopeId: String,
+        recipientId: String,
+        exception: DSSigningException
+      ) {
+        handleSigningError(
+          envelopeId,
+          "recipient_signing_failed",
+          exception.message ?: "Unknown error"
+        )
+      }
+    }
+
+    when (launchStrategy) {
+      CaptiveSigningLaunchStrategy.FETCH ->
+        launchViaEnvelopeFetch(activity, envelopeId, recipientClientUserId, listener)
+      CaptiveSigningLaunchStrategy.SIGNING_URL ->
+        launchViaSigningUrl(
+          activity,
+          envelopeId,
+          recipientUserName,
+          recipientEmail,
+          recipientClientUserId,
+          listener,
+          completion
+        )
+    }
+  }
+
+  private fun launchViaEnvelopeFetch(
+    activity: Activity,
+    envelopeId: String,
+    recipientClientUserId: String,
+    listener: DSCaptiveSigningListener
+  ) {
     try {
       DocuSign.getInstance().getCustomSettingsDelegate()
         .disableNativeComponentsInOnlineSigning(activity, true)
-
       DocuSign.getInstance().getSigningDelegate().launchCaptiveSigning(
         activity,
         envelopeId,
         recipientClientUserId,
-        object : DSCaptiveSigningListener {
-          override fun onStart(envelopeId: String) {}
-
-          override fun onSuccess(envelopeId: String) {
-            handleSigningCompleted(envelopeId)
-          }
-
-          override fun onCancel(envelopeId: String, recipientId: String) {
-            handleSigningCancelled(envelopeId, null)
-          }
-
-          override fun onError(envelopeId: String?, exception: DSSigningException) {
-            handleSigningError(
-              envelopeId,
-              "signing_failed",
-              exception.message ?: "Unknown error"
-            )
-          }
-
-          override fun onRecipientSigningSuccess(envelopeId: String, recipientId: String) {}
-
-          override fun onRecipientSigningError(
-            envelopeId: String,
-            recipientId: String,
-            exception: DSSigningException
-          ) {
-            handleSigningError(
-              envelopeId,
-              "recipient_signing_failed",
-              exception.message ?: "Unknown error"
-            )
-          }
-        }
+        listener
       )
     } catch (e: Exception) {
       val pending = pendingCompletion.getAndSet(null)
@@ -402,6 +455,142 @@ internal object DocuSignManager {
       currentEnvelopeId = null
       val pending = pendingCompletion.getAndSet(null)
       pending?.invoke(Result.failure(SigningFailedException(e.message ?: "Unknown error")))
+    }
+  }
+
+  /**
+   * Mints a recipient view and launches the SDK's signing-URL overload.
+   *
+   * The fetch-based overload downloads the envelope with `include=documents` on a size-derived
+   * read timeout that floors at 15s when nothing is cached, and that download is what times out
+   * on large envelopes. The signing-URL overload skips it and points the WebView straight at a
+   * recipient-view URL, which needs nothing beyond the recipient details passed here and the
+   * session credentials already held, so the timing-out call never runs.
+   */
+  private fun launchViaSigningUrl(
+    activity: Activity,
+    envelopeId: String,
+    recipientUserName: String,
+    recipientEmail: String,
+    recipientClientUserId: String,
+    listener: DSCaptiveSigningListener,
+    completion: (Result<SigningOutcome>) -> Unit
+  ) {
+    thread(start = true, isDaemon = true) {
+      val url = try {
+        mintRecipientViewUrl(envelopeId, recipientUserName, recipientEmail, recipientClientUserId)
+      } catch (e: Exception) {
+        // A mint failure must not be worse than not offering the strategy at all. Falling back to
+        // the fetch path restores the default behaviour exactly, so this can only add a way to
+        // succeed.
+        activity.runOnUiThread {
+          if (!canLaunchOn(activity, envelopeId, completion)) return@runOnUiThread
+          launchViaEnvelopeFetch(activity, envelopeId, recipientClientUserId, listener)
+        }
+        return@thread
+      }
+      activity.runOnUiThread {
+        if (!canLaunchOn(activity, envelopeId, completion)) return@runOnUiThread
+        launchWithSigningUrl(activity, url, envelopeId, recipientClientUserId, listener)
+      }
+    }
+  }
+
+  private fun launchWithSigningUrl(
+    activity: Activity,
+    url: String,
+    envelopeId: String,
+    recipientId: String?,
+    listener: DSCaptiveSigningListener
+  ) {
+    try {
+      DocuSign.getInstance().getCustomSettingsDelegate()
+        .disableNativeComponentsInOnlineSigning(activity, true)
+      DocuSign.getInstance().getSigningDelegate().launchCaptiveSigning(
+        activity,
+        url,
+        envelopeId,
+        recipientId,
+        listener
+      )
+    } catch (e: Exception) {
+      currentEnvelopeId = null
+      val pending = pendingCompletion.getAndSet(null)
+      pending?.invoke(Result.failure(SigningFailedException(e.message ?: "Unknown error")))
+    }
+  }
+
+  /**
+   * Minting puts a network round trip between capturing the Activity and using it, which the fetch
+   * path never did because it launched on the same stack frame. `runOnUiThread` posts to the main
+   * looper regardless of Activity state, so by the time this runs the screen may be gone or the
+   * session already resolved by `reset` or `endSigningSession`. Launching the SDK against either is
+   * how a dead-window crash or an orphaned signing screen happens.
+   *
+   * The check is on identity, not nullness. `reset` and `endSigningSession` clear the slot, and a
+   * fresh `presentCaptiveSigning` can claim it before a stale mint lands. A nullness check would
+   * pass in that window and launch this envelope wired to the new session's promise, resolving it
+   * with the wrong outcome. On a mismatch, do nothing at all: the slot is not this call's to
+   * resolve, and its own completion was already settled by whoever cleared it.
+   */
+  private fun canLaunchOn(
+    activity: Activity,
+    envelopeId: String,
+    completion: (Result<SigningOutcome>) -> Unit
+  ): Boolean {
+    if (pendingCompletion.get() !== completion) return false
+    if (activity.isFinishing || activity.isDestroyed) {
+      handleSigningCancelled(envelopeId, "activity_unavailable")
+      return false
+    }
+    return true
+  }
+
+  private fun mintRecipientViewUrl(
+    envelopeId: String,
+    recipientUserName: String,
+    recipientEmail: String,
+    recipientClientUserId: String
+  ): String {
+    val active = session ?: throw IllegalStateException("no active DocuSign session")
+    val base = active.host.trimEnd('/')
+    val root = when {
+      Regex("/restapi/v[0-9.]+$").containsMatchIn(base) -> base
+      base.endsWith("/restapi") -> "$base/v2.1"
+      else -> "$base/restapi/v2.1"
+    }
+    val endpoint = "$root/accounts/${active.accountId}/envelopes/$envelopeId/views/recipient"
+    val body = JSONObject()
+      .put("clientUserId", recipientClientUserId)
+      .put("userName", recipientUserName)
+      .put("email", recipientEmail)
+      .put("authenticationMethod", "none")
+      .put("returnUrl", "https://docusign/")
+      .toString()
+    var connection: HttpURLConnection? = null
+    return try {
+      connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+        requestMethod = "POST"
+        // Deliberately tighter than the envelope download this replaces. A recipient view is a
+        // small JSON POST, and the thread holds the Activity for the whole round trip, so a long
+        // ceiling would just delay the fallback and pin the view tree while it waited.
+        connectTimeout = 15_000
+        readTimeout = 15_000
+        doOutput = true
+        setRequestProperty("Authorization", "Bearer ${active.accessToken}")
+        setRequestProperty("Content-Type", "application/json")
+        setRequestProperty("Accept", "application/json")
+      }
+      connection.outputStream.use { it.write(body.toByteArray()) }
+      val code = connection.responseCode
+      val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+      val text = stream?.bufferedReader()?.use { it.readText() } ?: ""
+      if (code !in 200..299) {
+        throw IOException("recipient view request failed with HTTP $code")
+      }
+      JSONObject(text).getString("url")
+    } finally {
+      connection?.disconnect()
     }
   }
 

@@ -149,6 +149,11 @@ export function useDocuSignSigning(
             recipientUserName: session.recipientUserName,
             recipientEmail: session.recipientEmail,
             recipientClientUserId: session.recipientClientUserId,
+            // Spread rather than always sending the key, so a caller who never
+            // opts in produces the exact payload previous releases sent.
+            ...(session.launchStrategy
+              ? { launchStrategy: session.launchStrategy }
+              : {}),
           });
         }
 
