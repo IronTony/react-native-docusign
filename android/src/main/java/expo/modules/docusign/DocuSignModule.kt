@@ -52,6 +52,9 @@ internal class CaptiveSigningRecord : Record {
 
   @Field
   var recipientClientUserId: String = ""
+
+  @Field
+  var launchStrategy: String = "fetch"
 }
 
 internal class CaptiveSigningUrlRecord : Record {
@@ -125,7 +128,8 @@ class DocuSignModule : Module() {
         envelopeId = params.envelopeId,
         recipientUserName = params.recipientUserName,
         recipientEmail = params.recipientEmail,
-        recipientClientUserId = params.recipientClientUserId
+        recipientClientUserId = params.recipientClientUserId,
+        launchStrategy = CaptiveSigningLaunchStrategy.fromString(params.launchStrategy)
       ) { result ->
         result.fold(
           onSuccess = { outcome ->
