@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
+  CaptiveSigningParams,
+  CaptiveSigningUrlParams,
+  DocuSignAuthParams,
+  DocuSignConfig,
+  SigningResult,
+} from './DocuSign.types';
+import {
   addSigningErrorListener,
   endSigningSession,
   initialize,
@@ -8,13 +15,6 @@ import {
   presentCaptiveSigning,
   presentCaptiveSigningWithUrl,
 } from './api';
-import {
-  CaptiveSigningParams,
-  CaptiveSigningUrlParams,
-  DocuSignAuthParams,
-  DocuSignConfig,
-  SigningResult,
-} from './DocuSign.types';
 
 export const SIGNING_STATE = {
   IDLE: 'idle',
@@ -88,12 +88,21 @@ export function useDocuSignSigning(
     }
   }, [config]);
 
-  useEffect(() => {
-    if (!autoInitialize) return;
-    doInitialize().catch(() => {
-      // error already captured into hook state
-    });
-  }, [autoInitialize, doInitialize]);
+  useEffect(
+    function autoInitializeSdk() {
+      if (!autoInitialize) return;
+      // doInitialize sets state on its first line, so react-hooks flags this as a
+      // synchronous setState in an effect. It is deliberate: the effect exists to
+      // bring an external system (the DocuSign SDK) up, and the state transition
+      // to INITIALIZING is how that progress is reported. The cost is one extra
+      // render on mount, which is the intended behaviour rather than a cascade.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      doInitialize().catch(() => {
+        // error already captured into hook state
+      });
+    },
+    [autoInitialize, doInitialize],
+  );
 
   useEffect(function attachErrorListener() {
     const errorSub = addSigningErrorListener((event) => {
@@ -161,7 +170,9 @@ export function useDocuSignSigning(
       // Tear down any in-flight signing session and SDK auth state so the
       // next startSigning starts clean. Fire-and-forget so reset stays
       // synchronous from the caller's perspective; errors here are
-      // recoverable (consumer can retry startSigning).
+      // recoverable (consumer can retry startSigning). `void` marks the
+      // unawaited promise deliberately rather than by omission.
+      // eslint-disable-next-line no-void
       void endSigningSession().catch(() => {
         // swallow: SDK teardown failures should not surface as hook errors
       });

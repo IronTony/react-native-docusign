@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import {
   AndroidConfig,
   ConfigPlugin,
@@ -7,7 +8,6 @@ import {
   withInfoPlist,
   withProjectBuildGradle,
 } from 'expo/config-plugins';
-import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -27,7 +27,8 @@ const SDK_PDF_UPSTREAM_URL = `https://docucdn-a.akamaihd.net/prod/docusignandroi
 const SDK_PDF_SHA256 =
   '26eb53effd74d117397fbfd77e46a94786bbbd05fb9318fdbbff389c1a4dcb0a';
 const STRIPPED_AAR_FILENAME = `sdk-pdf-${SDK_PDF_VERSION}-stripped.aar`;
-const GLIDE_GENERATED_CLASS = 'com/bumptech/glide/GeneratedAppGlideModuleImpl.class';
+const GLIDE_GENERATED_CLASS =
+  'com/bumptech/glide/GeneratedAppGlideModuleImpl.class';
 
 function sha256Hex(buffer: Buffer): string {
   return crypto.createHash('sha256').update(buffer).digest('hex');
@@ -37,7 +38,6 @@ function isValidAar(filePath: string): boolean {
   // An AAR is a ZIP. Smoke-test the central directory by attempting to enumerate
   // entries and find classes.jar. Catches zero-byte or truncated cache files.
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const AdmZip = require('adm-zip') as typeof import('adm-zip');
     const zip = new AdmZip(filePath);
     return zip.getEntries().some((e) => e.entryName === 'classes.jar');
@@ -191,7 +191,7 @@ async function fetchUpstreamSdkPdfAar(): Promise<Buffer> {
 function stripGlideClassFromAar(aarBuffer: Buffer): Buffer {
   // adm-zip is loaded lazily so unit tests that never touch this codepath do
   // not require the dep to be installed.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+
   const AdmZip = require('adm-zip') as typeof import('adm-zip');
 
   const aar = new AdmZip(aarBuffer);

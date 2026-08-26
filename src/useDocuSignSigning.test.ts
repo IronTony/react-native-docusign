@@ -1,16 +1,8 @@
-import {
-  beforeEach,
-  describe,
-  expect,
-  it,
-  jest,
-} from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 
-import {
-  SIGNING_STATE,
-  useDocuSignSigning,
-} from './useDocuSignSigning';
+import * as api from './api';
+import { SIGNING_STATE, useDocuSignSigning } from './useDocuSignSigning';
 
 jest.mock('./api', () => ({
   __esModule: true,
@@ -22,8 +14,6 @@ jest.mock('./api', () => ({
   reset: jest.fn(),
   addSigningErrorListener: jest.fn(() => ({ remove: jest.fn() })),
 }));
-
-import * as api from './api';
 
 const config = {
   integratorKey: 'test-key',
@@ -206,7 +196,9 @@ describe('useDocuSignSigning', () => {
   });
 
   it('subscribes to signing errors and surfaces them into error state', async () => {
-    let listener: ((event: { errorCode: string; errorMessage: string }) => void) | undefined;
+    let listener:
+      | ((event: { errorCode: string; errorMessage: string }) => void)
+      | undefined;
     mockedApi.addSigningErrorListener.mockImplementation((cb) => {
       listener = cb;
       return { remove: jest.fn() };
