@@ -349,7 +349,11 @@ type SigningResult = {
 - `recipientClientUserId`: the `clientUserId` of the embedded recipient, used by DocuSign to identify captive signers
 - `launchStrategy`: how the Android SDK opens the ceremony, see [Android launch strategies](#android-launch-strategies). Ignored on iOS.
 
-**Throws:** rejects with `signing_failed` if the SDK fails to present the signing UI (e.g. not initialized, not logged in, invalid envelope).
+**Throws:**
+
+- `not_initialized` if `initialize` has not been called
+- `not_logged_in` if `loginWithAccessToken` has not been called
+- `signing_failed` if the SDK fails to present the signing UI (e.g. invalid envelope, or a signing session already in progress)
 
 **Returns:** resolves with a `SigningResult` once the user completes or cancels. `status === 'completed'` means the user finished the signing ceremony. `status === 'cancelled'` means the user explicitly cancelled or closed the signing UI.
 
@@ -395,8 +399,8 @@ type CaptiveSigningUrlParams = {
 
 **Throws:**
 
-- rejects if `initialize` has not been called
-- `signing_failed` if the URL is expired, malformed, or rejected by DocuSign
+- `not_initialized` if `initialize` has not been called
+- `signing_failed` if the URL is blank or not `https`, or if it is expired or rejected by DocuSign
 
 **Returns:** same `SigningResult` shape as `presentCaptiveSigning`.
 

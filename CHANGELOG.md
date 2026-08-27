@@ -2,9 +2,20 @@
 
 ## Next
 
+### Breaking changes
+
+- **Android**: rejection codes now reflect the failure. `presentCaptiveSigning` and `presentCaptiveSigningWithUrl` previously rejected every error as `signing_failed`; they now surface `not_initialized`, `not_logged_in`, `login_failed` or `signing_failed`, matching the codes the error table has always documented. Callers matching on `error.code === 'signing_failed'` to detect a missing `initialize()` or `loginWithAccessToken()` need to match the specific code instead.
+- **Android**: one `onSigningError` event per failure instead of two. The module emitted an event alongside the manager's own, which also flattened `recipient_signing_failed` into `signing_failed`. Listeners that deduplicated by hand can drop that workaround; listeners that counted events will see the count halve.
+
 ### New features
 
 - **Android**: Add `presentCaptiveSigningWithUrl` support. The URL flow now has iOS/Android parity and does not require `loginWithAccessToken`.
+- **Android**: Add an opt-in `launchStrategy` on `presentCaptiveSigning`. `signingUrl` mints a recipient view and launches the SDK's URL overload, skipping the envelope download that runs on a size-derived read timeout floored at 15s and can leave the ceremony unopened on large envelopes. Falls back to `fetch` if the mint fails. Defaults to `fetch`, so upgrading changes nothing unless you opt in.
+
+### Fixes
+
+- **Android**: reject a blank or non-`https` `signingUrl` before launching. The SDK's URL overload validates nothing and calls `startActivity` unconditionally, so a malformed URL opened an empty signing activity and left the promise unsettled.
+- **Android**: `presentCaptiveSigning` now clears `currentEnvelopeId` when the launch itself throws, matching the URL path.
 
 ## 1.0.5
 
