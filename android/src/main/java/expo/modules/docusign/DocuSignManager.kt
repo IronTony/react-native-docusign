@@ -50,6 +50,29 @@ internal data class DocuSignSession(
   val host: String
 )
 
+/**
+ * Normalises a DocuSign `host` into a REST API root.
+ *
+ * Consumers pass whatever their backend hands them, and the three shapes seen in the wild all have
+ * to reach the same place:
+ *
+ *   https://demo.docusign.net                 -> https://demo.docusign.net/restapi/v2.1
+ *   https://demo.docusign.net/restapi         -> https://demo.docusign.net/restapi/v2.1
+ *   https://demo.docusign.net/restapi/v2.1    -> unchanged, an explicit version wins
+ *
+ * Pulled out of the request builder so the branching is readable and can be exercised on its own.
+ * Ordering is load-bearing: the versioned check has to come first, or an already-versioned host
+ * would fall through and get a second `/restapi/v2.1` appended.
+ */
+internal fun restApiRoot(host: String): String {
+  val base = host.trimEnd('/')
+  return when {
+    Regex("/restapi/v[0-9.]+$", RegexOption.IGNORE_CASE).containsMatchIn(base) -> base
+    base.endsWith("/restapi", ignoreCase = true) -> "$base/v2.1"
+    else -> "$base/restapi/v2.1"
+  }
+}
+
 internal data class SigningOutcome(
   val status: String,
   val envelopeId: String,
@@ -309,35 +332,7 @@ internal object DocuSignManager {
     }
     currentEnvelopeId = envelopeId
 
-    val listener = object : DSCaptiveSigningListener {
-      override fun onStart(envelopeId: String) {}
-
-      override fun onSuccess(envelopeId: String) {
-        handleSigningCompleted(envelopeId)
-      }
-
-      override fun onCancel(envelopeId: String, recipientId: String) {
-        handleSigningCancelled(envelopeId, null)
-      }
-
-      override fun onError(envelopeId: String?, exception: DSSigningException) {
-        handleSigningError(envelopeId, "signing_failed", exception.message ?: "Unknown error")
-      }
-
-      override fun onRecipientSigningSuccess(envelopeId: String, recipientId: String) {}
-
-      override fun onRecipientSigningError(
-        envelopeId: String,
-        recipientId: String,
-        exception: DSSigningException
-      ) {
-        handleSigningError(
-          envelopeId,
-          "recipient_signing_failed",
-          exception.message ?: "Unknown error"
-        )
-      }
-    }
+    val listener = captiveSigningListener()
 
     when (launchStrategy) {
       CaptiveSigningLaunchStrategy.FETCH ->
@@ -353,6 +348,53 @@ internal object DocuSignManager {
           completion
         )
     }
+  }
+
+  /**
+   * One listener for every launch path. Both entrypoints previously built their own copy, so a fix
+   * to any callback had to be made twice and the copies could drift.
+   */
+  private fun captiveSigningListener() = object : DSCaptiveSigningListener {
+    override fun onStart(envelopeId: String) {}
+
+    override fun onSuccess(envelopeId: String) {
+      handleSigningCompleted(envelopeId)
+    }
+
+    override fun onCancel(envelopeId: String, recipientId: String) {
+      handleSigningCancelled(envelopeId, null)
+    }
+
+    override fun onError(envelopeId: String?, exception: DSSigningException) {
+      handleSigningError(envelopeId, "signing_failed", exception.message ?: "Unknown error")
+    }
+
+    override fun onRecipientSigningSuccess(envelopeId: String, recipientId: String) {}
+
+    override fun onRecipientSigningError(
+      envelopeId: String,
+      recipientId: String,
+      exception: DSSigningException
+    ) {
+      handleSigningError(
+        envelopeId,
+        "recipient_signing_failed",
+        exception.message ?: "Unknown error"
+      )
+    }
+  }
+
+  /**
+   * Guards every URL this object hands to the SDK or sends credentials to.
+   *
+   * The SDK's URL overload validates nothing and calls `startActivity` unconditionally, so a blank
+   * or non-https signing URL would open an empty signing activity that never calls the listener
+   * back, leaving the promise unsettled. The recipient-view request needs the same check for a
+   * different reason: it carries the session bearer token, and `host` arrives unvalidated from JS.
+   */
+  private fun isHttpsUrl(url: String): Boolean {
+    val uri = android.net.Uri.parse(url)
+    return uri.scheme.equals("https", ignoreCase = true) && !uri.host.isNullOrBlank()
   }
 
   private fun launchViaEnvelopeFetch(
@@ -371,6 +413,7 @@ internal object DocuSignManager {
         listener
       )
     } catch (e: Exception) {
+      currentEnvelopeId = null
       val pending = pendingCompletion.getAndSet(null)
       pending?.invoke(Result.failure(SigningFailedException(e.message ?: "Unknown error")))
     }
@@ -393,11 +436,9 @@ internal object DocuSignManager {
       return
     }
 
-    val signingUri = android.net.Uri.parse(signingUrl)
-    if (
-      !signingUri.scheme.equals("https", ignoreCase = true) ||
-      signingUri.host.isNullOrBlank()
-    ) {
+    // Ahead of the compareAndSet on purpose: a rejected URL must not claim the pending slot, or a
+    // later valid call would be refused as "already in progress".
+    if (!isHttpsUrl(signingUrl)) {
       completion(Result.failure(SigningFailedException("Signing URL must be a valid HTTPS URL")))
       return
     }
@@ -408,54 +449,7 @@ internal object DocuSignManager {
     }
     currentEnvelopeId = envelopeId
 
-    try {
-      DocuSign.getInstance().getCustomSettingsDelegate()
-        .disableNativeComponentsInOnlineSigning(activity, true)
-
-      DocuSign.getInstance().getSigningDelegate().launchCaptiveSigning(
-        activity,
-        signingUrl,
-        envelopeId,
-        recipientId,
-        object : DSCaptiveSigningListener {
-          override fun onStart(envelopeId: String) {}
-
-          override fun onSuccess(envelopeId: String) {
-            handleSigningCompleted(envelopeId)
-          }
-
-          override fun onCancel(envelopeId: String, recipientId: String) {
-            handleSigningCancelled(envelopeId, null)
-          }
-
-          override fun onError(envelopeId: String?, exception: DSSigningException) {
-            handleSigningError(
-              envelopeId,
-              "signing_failed",
-              exception.message ?: "Unknown error"
-            )
-          }
-
-          override fun onRecipientSigningSuccess(envelopeId: String, recipientId: String) {}
-
-          override fun onRecipientSigningError(
-            envelopeId: String,
-            recipientId: String,
-            exception: DSSigningException
-          ) {
-            handleSigningError(
-              envelopeId,
-              "recipient_signing_failed",
-              exception.message ?: "Unknown error"
-            )
-          }
-        }
-      )
-    } catch (e: Exception) {
-      currentEnvelopeId = null
-      val pending = pendingCompletion.getAndSet(null)
-      pending?.invoke(Result.failure(SigningFailedException(e.message ?: "Unknown error")))
-    }
+    launchWithSigningUrl(activity, signingUrl, envelopeId, recipientId, captiveSigningListener())
   }
 
   /**
@@ -479,6 +473,11 @@ internal object DocuSignManager {
     thread(start = true, isDaemon = true) {
       val url = try {
         mintRecipientViewUrl(envelopeId, recipientUserName, recipientEmail, recipientClientUserId)
+          .also {
+            // Same guard the public URL entrypoint applies. A malformed mint response would
+            // otherwise open an empty signing activity that never calls the listener back.
+            if (!isHttpsUrl(it)) throw IOException("recipient view returned an invalid URL")
+          }
       } catch (e: Exception) {
         // A mint failure must not be worse than not offering the strategy at all. Falling back to
         // the fetch path restores the default behaviour exactly, so this can only add a way to
@@ -553,13 +552,14 @@ internal object DocuSignManager {
     recipientClientUserId: String
   ): String {
     val active = session ?: throw IllegalStateException("no active DocuSign session")
-    val base = active.host.trimEnd('/')
-    val root = when {
-      Regex("/restapi/v[0-9.]+$").containsMatchIn(base) -> base
-      base.endsWith("/restapi") -> "$base/v2.1"
-      else -> "$base/restapi/v2.1"
+    val endpoint =
+      "${restApiRoot(active.host)}/accounts/${active.accountId}/envelopes/$envelopeId/views/recipient"
+    // `host` arrives from JS unvalidated, and this request carries the session bearer token. Refuse
+    // to send it anywhere that is not https rather than leaking it in cleartext. Throwing here
+    // routes to the fetch fallback, so a misconfigured host degrades instead of failing outright.
+    if (!isHttpsUrl(endpoint)) {
+      throw IOException("DocuSign host must be an https URL to mint a recipient view")
     }
-    val endpoint = "$root/accounts/${active.accountId}/envelopes/$envelopeId/views/recipient"
     val body = JSONObject()
       .put("clientUserId", recipientClientUserId)
       .put("userName", recipientUserName)

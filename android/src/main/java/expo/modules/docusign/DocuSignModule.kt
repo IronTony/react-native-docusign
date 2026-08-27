@@ -3,6 +3,7 @@ package expo.modules.docusign
 import android.app.Activity
 import android.content.Context
 import expo.modules.kotlin.Promise
+import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -143,8 +144,11 @@ class DocuSignModule : Module() {
             )
           },
           onFailure = { error ->
-            emitSigningError(params.envelopeId, "signing_failed", error.message ?: "Unknown error")
-            promise.reject("signing_failed", error.message ?: "Unknown error", error as? Exception)
+            // No emitSigningError here. handleSigningError already emits, so emitting again
+            // delivered two events per failure and flattened recipient_signing_failed into
+            // signing_failed. Failures that never reach the manager (not initialized, not logged
+            // in) are programming errors and reject without an event, matching iOS.
+            promise.reject(codeOf(error), error.message ?: "Unknown error", error as? Exception)
           }
         )
       }
@@ -172,8 +176,7 @@ class DocuSignModule : Module() {
             )
           },
           onFailure = { error ->
-            emitSigningError(params.envelopeId, "signing_failed", error.message ?: "Unknown error")
-            promise.reject("signing_failed", error.message ?: "Unknown error", error as? Exception)
+            promise.reject(codeOf(error), error.message ?: "Unknown error", error as? Exception)
           }
         )
       }
@@ -198,6 +201,14 @@ class DocuSignModule : Module() {
       promise.resolve(null)
     }
   }
+
+  /**
+   * The rejection code for a manager failure. Every exception this module raises is a
+   * CodedException carrying an explicit code, so callers can tell not_initialized from
+   * not_logged_in from signing_failed instead of receiving signing_failed for all three.
+   */
+  private fun codeOf(error: Throwable): String =
+    (error as? CodedException)?.code ?: "signing_failed"
 
   internal fun emitSigningComplete(envelopeId: String) {
     sendEvent("onSigningComplete", mapOf("envelopeId" to envelopeId))
