@@ -6,6 +6,9 @@
 .vscode/
 jsconfig.json
 
+# Coding agents
+.claude/
+
 # Xcode
 #
 *.pbxuser
