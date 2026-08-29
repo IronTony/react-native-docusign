@@ -318,7 +318,25 @@ internal final class DocuSignManager: NSObject {
   /// `loginWithAccessToken` runs. If you need to isolate DocuSign's WebKit
   /// state from the rest of your app, use a non-default data store for those
   /// other WebViews.
+  /// Hops to the main thread before touching any DSMManager or WebKit API.
+  ///
+  /// Expo dispatches a synchronous `AsyncFunction` body on a serial background queue, so every
+  /// caller that originates in a JS call arrives here off-main. This is the only method reaching
+  /// `DSMManager.clearAllWebCookies()` and `WKWebsiteDataStore` directly, so one guard here covers
+  /// `performLogin`, `endSigningSession` and `reset` rather than each hopping for itself. The
+  /// completion is dispatched on main below, so callers may touch DSMManager from it.
   private func clearWebCookiesAsync(completion: @escaping () -> Void) {
+    guard Thread.isMainThread else {
+      DispatchQueue.main.async { [weak self] in
+        guard let self = self else {
+          completion()
+          return
+        }
+        self.clearWebCookiesAsync(completion: completion)
+      }
+      return
+    }
+
     DSMManager.clearAllWebCookies()
     let dataStore = WKWebsiteDataStore.default()
     let types = WKWebsiteDataStore.allWebsiteDataTypes()
@@ -526,7 +544,6 @@ internal final class DocuSignManager: NSObject {
   /// free.
   func endSigningSession(completion: @escaping () -> Void) {
     // Resolve any in-flight signing promise so the JS side does not hang.
-    var pendingResolved = false
     stateQueue.sync {
       if let pending = pendingCompletion {
         let outcome = SigningOutcome(
@@ -538,19 +555,7 @@ internal final class DocuSignManager: NSObject {
         pendingCompletion = nil
         currentEnvelopeId = nil
         DispatchQueue.main.async { pending(.success(outcome)) }
-        pendingResolved = true
       }
-    }
-    _ = pendingResolved // silence unused-warning; kept for future telemetry
-
-    // DSMManager APIs (clearAllWebCookies, logout) must run on the main thread.
-    // Expo async functions are dispatched on AsyncFunctionQueue (non-main), so
-    // we must hop to main before touching any DSMManager API.
-    guard Thread.isMainThread else {
-      DispatchQueue.main.async { [weak self] in
-        self?.endSigningSession(completion: completion)
-      }
-      return
     }
 
     clearWebCookiesAsync { [weak self] in
@@ -601,14 +606,9 @@ internal final class DocuSignManager: NSObject {
       return
     }
 
-    if !Thread.isMainThread {
-      DispatchQueue.main.async { [weak self] in
-        guard let self = self else { completion(); return }
-        self.reset(completion: completion)
-      }
-      return
-    }
-
+    // No main-thread hop here. clearWebCookiesAsync guards itself, and re-entering reset() from
+    // main would run the pending-cancellation block above a second time, cancelling any session
+    // that claimed the slot in between.
     clearWebCookiesAsync { [weak self] in
       guard let self = self else { completion(); return }
       _ = DSMManager.logout()
