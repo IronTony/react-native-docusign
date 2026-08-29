@@ -672,6 +672,19 @@ internal final class DocuSignManager: NSObject {
     }
   }
 
+  /// Guards the URL handed to the SDK's URL overload.
+  ///
+  /// `DSMEnvelopesManager.presentCaptiveSigning(withPresenting:signingUrl:...)` validates nothing
+  /// and presents unconditionally, so a blank or non-https URL renders an empty signing controller
+  /// whose completion never fires and leaves the promise unsettled. `CaptiveSigningUrlRecord`
+  /// defaults `signingUrl` to "", so an omitted field reaches here as a blank string.
+  private static func isHttpsUrl(_ url: String) -> Bool {
+    guard let components = URLComponents(string: url) else {
+      return false
+    }
+    return components.scheme?.lowercased() == "https" && !(components.host ?? "").isEmpty
+  }
+
   /// Presents captive signing from a pre-minted DocuSign recipient-view URL.
   ///
   /// The signing URL itself encodes recipient identity via a short-lived token,
@@ -685,6 +698,12 @@ internal final class DocuSignManager: NSObject {
   ) throws {
     guard isInitialized else {
       throw NotInitializedException()
+    }
+
+    // Ahead of the pendingCompletion claim on purpose: a rejected URL must not occupy the slot, or
+    // a later valid call would be refused as "already in progress".
+    guard Self.isHttpsUrl(signingUrl) else {
+      throw SigningFailedException("Signing URL must be a valid HTTPS URL")
     }
 
     var alreadyInFlight = false
