@@ -1,6 +1,8 @@
 # Changelog
 
-## Next
+## 2.0.0
+
+Upgrading from 1.x: every rejection code is now the lowercase code the README documents, on both platforms. iOS previously emitted `ERR_`-prefixed variants and Android rejected most failures as `signing_failed`. If you branch on `error.code`, check those branches. Nothing else requires a change, and the new Android `launchStrategy` is opt-in.
 
 ### Breaking changes
 
