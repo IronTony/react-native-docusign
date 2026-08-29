@@ -803,6 +803,9 @@ The module rejects promises with coded exceptions you can inspect at the call si
 | `signing_failed`    | SDK failed to present or complete signing     | Check envelope ID, recipient info, SDK login state             |
 | `not_initialized`   | `initialize()` was not called first           | Call `initialize()` before any other method                    |
 | `not_logged_in`     | `loginWithAccessToken()` was not called first | Call `loginWithAccessToken()` before `presentCaptiveSigning()` |
+| `presentation_failed` | No view controller available to present from (iOS) | Present from a mounted screen, not during a navigation transition |
+
+Both platforms emit these codes verbatim. Do not match on `ERR_`-prefixed variants.
 
 Example:
 
