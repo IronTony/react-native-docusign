@@ -1,6 +1,6 @@
 {
   "name": "react-native-docusign",
-  "version": "1.0.5",
+  "version": "2.0.0",
   "description": "React Native / Expo native module wrapping DocuSign iOS and Android SDKs for in-app captive signing",
   "main": "build/index.js",
   "types": "build/index.d.ts",
