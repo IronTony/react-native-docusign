@@ -1,6 +1,8 @@
 # Changelog
 
-## Next
+## 2.0.0
+
+Upgrading from 1.x: every failure now rejects with a `DocuSignError`. Check any code that branches on `error.code`, matches message text, handles `status: 'error'` from `presentCaptiveSigning*`, or reads `errorCode` in an `addSigningErrorListener` callback. Codes are the lowercase codes the README documents, on both platforms, where iOS previously emitted `ERR_`-prefixed variants and Android rejected most failures as `signing_failed`. The new Android `launchStrategy` is opt-in.
 
 ### Breaking changes
 
@@ -20,7 +22,6 @@
 - In development, a caller mistake also prints one console warning naming the fix, so a catch that shows a generic toast cannot hide it.
 - **Android**: the SDK's own error code, the HTTP status of an SDK REST failure, and DocuSign's error body from the recipient-view request are kept. The module previously forwarded only the exception message, and the `signingUrl` strategy discarded the error body entirely when it fell back to `fetch`.
 - New [error handling guide](docs/ERROR_HANDLING.md) covering translated copy, retries, reporting to Amplitude, New Relic and Sentry, and reading the results in production. Its examples live in `examples/error-handling` and are type-checked in CI.
-
 - **Android**: Add `presentCaptiveSigningWithUrl` support. The URL flow now has iOS/Android parity and does not require `loginWithAccessToken`.
 - **Android**: Add an opt-in `launchStrategy` on `presentCaptiveSigning`. `signingUrl` mints a recipient view and launches the SDK's URL overload, skipping the envelope download that runs on a size-derived read timeout floored at 15s and can leave the ceremony unopened on large envelopes. Falls back to `fetch` if the mint fails. Defaults to `fetch`, so upgrading changes nothing unless you opt in.
 
