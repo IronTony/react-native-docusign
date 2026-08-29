@@ -16,6 +16,8 @@
 
 ### Fixes
 
+- **iOS**: `endSigningSession` no longer calls `DSMManager` off the main thread. Expo dispatches a synchronous `AsyncFunction` body on a serial background queue, so `clearAllWebCookies()` and `logout()` were reached off-main on every call, including the one `useDocuSignSigning`'s `reset()` makes between flows. The guard now lives in `clearWebCookiesAsync`, the only method touching `DSMManager` and `WKWebsiteDataStore` directly, so it covers every caller. Thanks to @virajpsimformsolutions for finding and fixing this.
+- **iOS**: `reset()` no longer re-enters itself to reach the main thread. The hop sat below the block that cancels an in-flight signing promise, so the re-entrant pass ran that block twice and could cancel a session that claimed the slot in between.
 - **iOS**: reject a blank or non-`https` `signingUrl` before presenting. `DSMEnvelopesManager.presentCaptiveSigning` validates nothing and presents unconditionally, so a malformed URL rendered an empty signing controller whose completion never fired and left the promise unsettled. `signingUrl` defaults to `""` when JS omits it, so this was reachable without a malformed URL at all. Brings iOS to parity with the Android guard below.
 - **Android**: reject a blank or non-`https` `signingUrl` before launching. The SDK's URL overload validates nothing and calls `startActivity` unconditionally, so a malformed URL opened an empty signing activity and left the promise unsettled.
 - **Android**: `presentCaptiveSigning` now clears `currentEnvelopeId` when the launch itself throws, matching the URL path.
