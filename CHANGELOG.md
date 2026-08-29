@@ -5,6 +5,8 @@
 ### Breaking changes
 
 - **Android**: rejection codes now reflect the failure. `presentCaptiveSigning` and `presentCaptiveSigningWithUrl` previously rejected every error as `signing_failed`; they now surface `not_initialized`, `not_logged_in`, `login_failed` or `signing_failed`, matching the codes the error table has always documented. Callers matching on `error.code === 'signing_failed'` to detect a missing `initialize()` or `loginWithAccessToken()` need to match the specific code instead.
+- **iOS**: rejection codes now match the documented table and the Android module. Expo derives a code from the exception class name when none is set, so `not_initialized` reached JS as `ERR_NOT_INITIALIZED`, `signing_failed` as `ERR_SIGNING_FAILED`, and so on for every code the README has always listed. Callers matching on the `ERR_`-prefixed variants need to match the documented code instead.
+- **iOS**: `presentCaptiveSigning` and `presentCaptiveSigningWithUrl` forward the failure's own code rather than rejecting everything as `signing_failed`. A failure to find a presenting view controller now rejects and emits `presentation_failed`. The rejection message is the underlying error text on its own, where it previously carried a `DocuSign signing failed:` prefix.
 - **Android**: one `onSigningError` event per failure instead of two. The module emitted an event alongside the manager's own, which also flattened `recipient_signing_failed` into `signing_failed`. Listeners that deduplicated by hand can drop that workaround; listeners that counted events will see the count halve.
 
 ### New features
@@ -14,6 +16,7 @@
 
 ### Fixes
 
+- **iOS**: reject a blank or non-`https` `signingUrl` before presenting. `DSMEnvelopesManager.presentCaptiveSigning` validates nothing and presents unconditionally, so a malformed URL rendered an empty signing controller whose completion never fired and left the promise unsettled. `signingUrl` defaults to `""` when JS omits it, so this was reachable without a malformed URL at all. Brings iOS to parity with the Android guard below.
 - **Android**: reject a blank or non-`https` `signingUrl` before launching. The SDK's URL overload validates nothing and calls `startActivity` unconditionally, so a malformed URL opened an empty signing activity and left the promise unsettled.
 - **Android**: `presentCaptiveSigning` now clears `currentEnvelopeId` when the launch itself throws, matching the URL path.
 
