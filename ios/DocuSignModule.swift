@@ -109,12 +109,17 @@ public class DocuSignModule: Module {
               "errorMessage": outcome.errorMessage as Any
             ])
           case .failure(let error):
+            // Forward the failure's own code. Hard-coding signing_failed flattened
+            // presentation_failed and hid which stage failed. promise.reject(error) is not the
+            // alternative here: it wraps anything that is not an Exception, so a raw SDK NSError
+            // would surface as ERR_UNEXPECTED.
+            let code = (error as? CodedError)?.code ?? "signing_failed"
             self.sendEvent("onSigningError", [
               "envelopeId": params.envelopeId,
-              "errorCode": "signing_failed",
+              "errorCode": code,
               "errorMessage": error.localizedDescription
             ])
-            promise.reject(SigningFailedException(error.localizedDescription))
+            promise.reject(code, error.localizedDescription)
           }
         }
       } catch {
@@ -138,12 +143,17 @@ public class DocuSignModule: Module {
               "errorMessage": outcome.errorMessage as Any
             ])
           case .failure(let error):
+            // Forward the failure's own code. Hard-coding signing_failed flattened
+            // presentation_failed and hid which stage failed. promise.reject(error) is not the
+            // alternative here: it wraps anything that is not an Exception, so a raw SDK NSError
+            // would surface as ERR_UNEXPECTED.
+            let code = (error as? CodedError)?.code ?? "signing_failed"
             self.sendEvent("onSigningError", [
               "envelopeId": params.envelopeId,
-              "errorCode": "signing_failed",
+              "errorCode": code,
               "errorMessage": error.localizedDescription
             ])
-            promise.reject(SigningFailedException(error.localizedDescription))
+            promise.reject(code, error.localizedDescription)
           }
         }
       } catch {
