@@ -558,6 +558,16 @@ internal final class DocuSignManager: NSObject {
       }
     }
 
+    // DSMManager APIs (clearAllWebCookies, logout) must run on the main thread.
+    // Expo async functions are dispatched on AsyncFunctionQueue (non-main), so
+    // we must hop to main before touching any DSMManager API.
+    guard Thread.isMainThread else {
+      DispatchQueue.main.async { [weak self] in
+        self?.endSigningSession(completion: completion)
+      }
+      return
+    }
+
     clearWebCookiesAsync { [weak self] in
       guard let self = self else {
         completion()
@@ -586,8 +596,10 @@ internal final class DocuSignManager: NSObject {
   /// Safe to call when the SDK was never initialized: returns immediately
   /// without touching DSMManager.
   func reset(completion: @escaping () -> Void) {
+    var hadPending = false
     stateQueue.sync {
       if let pending = pendingCompletion {
+        hadPending = true
         let outcome = SigningOutcome(
           status: "cancelled",
           envelopeId: currentEnvelopeId ?? "",
@@ -597,6 +609,23 @@ internal final class DocuSignManager: NSObject {
         pendingCompletion = nil
         currentEnvelopeId = nil
         DispatchQueue.main.async { pending(.success(outcome)) }
+      }
+    }
+
+    // Force-dismiss the captive signing modal if one is on screen. reset() is
+    // called on session teardown (e.g. END_CONSULTATION) which can arrive while
+    // the DocuSign WebView is still presented; the SDK only dismisses its own UI
+    // on user Finish/Cancel, so we dismiss the presented modal here. Gated on
+    // hadPending so an unrelated modal is never torn down.
+    if hadPending {
+      DispatchQueue.main.async {
+        let root = UIApplication.shared.connectedScenes
+          .compactMap { $0 as? UIWindowScene }
+          .flatMap { $0.windows }
+          .first(where: { $0.isKeyWindow })?.rootViewController
+        if root?.presentedViewController != nil {
+          root?.dismiss(animated: true)
+        }
       }
     }
 
