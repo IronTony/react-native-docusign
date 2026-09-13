@@ -1,5 +1,11 @@
 # Changelog
 
+## Next
+
+### Fixes
+
+- Bump `adm-zip`, the Config Plugin's only runtime dependency, to 0.6.1. This clears GHSA-xcpc-8h2w-3j85 (high) and GHSA-vwc7-r8mq-g2x9 (moderate) from consumers' `npm audit`. Neither was reachable: the plugin never extracts to disk, and it only parses the AAR it downloaded after checking its SHA-256, or its own cached copy under `node_modules`.
+
 ## 2.0.0
 
 Upgrading from 1.x: every failure now rejects with a `DocuSignError`. Check any code that branches on `error.code`, matches message text, handles `status: 'error'` from `presentCaptiveSigning*`, or reads `errorCode` in an `addSigningErrorListener` callback. Codes are the lowercase codes the README documents, on both platforms, where iOS previously emitted `ERR_`-prefixed variants and Android rejected most failures as `signing_failed`. The new Android `launchStrategy` is opt-in.
