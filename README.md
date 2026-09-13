@@ -209,7 +209,7 @@ type DocuSignPluginProps = {
 
   /**
    * URL of the Android Maven repository that serves the DocuSign Android SDK.
-   * Defaults to 'https://maven.docusign.com/'.
+   * Defaults to 'https://docucdn-a.akamaihd.net/prod/docusignandroidsdk'.
    * Override only if DocuSign moves their repo.
    */
   androidMavenRepo?: string;
@@ -912,10 +912,12 @@ The DocuSign Android SDK is not on Maven Central; it is hosted on DocuSign's own
 ```groovy
 allprojects {
   repositories {
-    maven { url "https://maven.docusign.com/" }
+    maven { url "https://docucdn-a.akamaihd.net/prod/docusignandroidsdk" }
   }
 }
 ```
+
+This is the URL DocuSign's own [Android SDK install guide](https://github.com/docusign/mobile-android-sdk) uses. It is a static file host with no index page, so opening it in a browser returns 404 even though Gradle resolves artifacts under it, such as `com/docusign/androidsdk/2.1.4/androidsdk-2.1.4.pom`. It also serves no `maven-metadata.xml`, so declare exact versions: a dynamic version such as `2.+` does not resolve.
 
 ### "not_logged_in" error when calling `presentCaptiveSigning`
 
