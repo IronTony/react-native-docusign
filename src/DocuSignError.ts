@@ -39,8 +39,8 @@ export type DocuSignUnderlyingError = {
 export type DocuSignNativeErrorDetails = DocuSignUnderlyingError & {
   /**
    * The lower-level error behind the failure when known: `NSUnderlyingErrorKey`
-   * on iOS, the exception cause on Android, or the transport error of a request
-   * the package made itself.
+   * on iOS, the root of the exception's cause chain on Android, or the transport
+   * error of a request the package made itself.
    */
   underlying?: DocuSignUnderlyingError;
 };
@@ -113,23 +113,30 @@ const JWT_PATTERN =
 const BEARER_PATTERN = /\bBearer\s+\S+/gi;
 const URL_PATTERN = /\bhttps?:\/\/[^\s"'<>]+/gi;
 const TOKEN_LIKE_SEGMENT = /^[A-Za-z0-9_-]{20,}$/;
+const TRAILING_PUNCTUATION = /[.,;:!?)\]}]+$/;
 
 /**
  * Signing URLs carry a token in their path and query, and SDK messages can
  * echo a URL or a bearer token back. Keep the origin and short path segments so
  * a message still says which host failed, and drop everything token shaped.
+ *
+ * The URL match also takes punctuation that ends the sentence around it. That
+ * is peeled off first, or a token segment followed by a period would fail the
+ * token test and be left in place.
  */
-function redactUrl(url: string): string {
+function redactUrl(matched: string): string {
+  const trailing = TRAILING_PUNCTUATION.exec(matched)?.[0] ?? '';
+  const url = matched.slice(0, matched.length - trailing.length);
   const withoutQuery = url.split(/[?#]/)[0];
   const match = /^(https?:\/\/[^/]+)(\/.*)?$/i.exec(withoutQuery);
-  if (!match) return '[redacted-url]';
+  if (!match) return `[redacted-url]${trailing}`;
   const [, origin, path = ''] = match;
   const segments = path
     .split('/')
     .map((segment) =>
       TOKEN_LIKE_SEGMENT.test(segment) ? '[redacted]' : segment,
     );
-  return origin + segments.join('/');
+  return origin + segments.join('/') + trailing;
 }
 
 export function redactSecrets(text: string): string {

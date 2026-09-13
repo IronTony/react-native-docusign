@@ -227,11 +227,32 @@ describe('loginWithAccessToken', () => {
 
 describe('initialize', () => {
   it('resolves when native resolves', async () => {
-    nativeModule.initialize.mockResolvedValue(undefined);
+    nativeModule.initialize.mockResolvedValue(null);
 
     await expect(
       initialize({ integratorKey: 'key', environment: 'demo' }),
     ).resolves.toBeUndefined();
+  });
+
+  it('rejects with the SDK details when native resolves an initialization failure', async () => {
+    nativeModule.initialize.mockResolvedValue({
+      status: 'error',
+      errorCode: 'initialize_failed',
+      errorMessage: 'DocuSign SDK could not be initialized: bad state',
+      nativeDomain: 'java.lang.IllegalStateException',
+      nativeMessage: 'bad state',
+    });
+
+    const error = await captureRejection(
+      initialize({ integratorKey: 'key', environment: 'demo' }),
+    );
+
+    expect(error).toBeInstanceOf(DocuSignError);
+    expect(error).toMatchObject({
+      code: 'initialize_failed',
+      reason: 'unknown',
+      native: { domain: 'java.lang.IllegalStateException' },
+    });
   });
 
   it('rejects with a DocuSignError when native rejects', async () => {

@@ -23,16 +23,15 @@ internal data class FailureDetails(
   val docusignMessage: String? = null
 ) {
   /** Records a lower-level error without overwriting one the SDK already reported. */
-  fun withUnderlyingIfAbsent(error: Throwable): FailureDetails =
-    if (underlyingDomain != null) {
-      this
-    } else {
-      copy(
-        underlyingDomain = error.javaClass.name,
-        underlyingCode = sdkErrorCode(error),
-        underlyingMessage = error.message
-      )
-    }
+  fun withUnderlyingIfAbsent(error: Throwable): FailureDetails {
+    if (underlyingDomain != null) return this
+    val root = rootCause(error) ?: error
+    return copy(
+      underlyingDomain = root.javaClass.name,
+      underlyingCode = sdkErrorCode(root),
+      underlyingMessage = root.message
+    )
+  }
 
   fun withHttp(error: DocuSignHttpException): FailureDetails =
     copy(
@@ -60,7 +59,7 @@ internal data class FailureDetails(
      * alone was all this module forwarded before, and it rarely says what failed.
      */
     fun from(error: Throwable): FailureDetails {
-      val cause = error.cause
+      val cause = rootCause(error)
       return FailureDetails(
         nativeDomain = error.javaClass.name,
         nativeCode = sdkErrorCode(error),
@@ -74,6 +73,27 @@ internal data class FailureDetails(
 
     private fun sdkErrorCode(error: Throwable): String? =
       (error as? DSException)?.errorCode?.takeIf { it.isNotBlank() }
+
+    private const val MAX_CAUSE_DEPTH = 8
+
+    /**
+     * The deepest cause, bounded and safe against cycles. Java wraps transport failures, so the
+     * SocketTimeoutException or UnknownHostException that explains a failure sits at the root of
+     * the chain, often more than one level below the exception the SDK hands over. iOS keeps the
+     * immediate underlying error instead, because the deepest error under an NSURLErrorDomain
+     * failure is a CFNetwork error that the reason rules do not classify as a network failure.
+     */
+    private fun rootCause(error: Throwable): Throwable? {
+      val seen = mutableSetOf(error)
+      var current = error.cause ?: return null
+      repeat(MAX_CAUSE_DEPTH) {
+        seen.add(current)
+        val next = current.cause
+        if (next == null || next in seen) return current
+        current = next
+      }
+      return current
+    }
   }
 }
 

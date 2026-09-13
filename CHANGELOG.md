@@ -15,7 +15,8 @@
 
 - `DocuSignError.reason` classifies a failure as `usage`, `network`, `auth`, `configuration`, `recipient` or `unknown`, so an app can show a message that fits and skip retries that cannot succeed. A login failure is checked against `/oauth/userinfo` with the same token, which separates an expired token (`auth`) from a valid token DocuSign still refuses (`configuration`).
 - `DocuSignError.toAttributes()` returns flat, primitive attributes ready for Amplitude, New Relic, Sentry or any other tool.
-- Messages and details are redacted before they reach app code: JWTs, `Bearer` credentials, URL query strings and token-like URL path segments are removed, so an error can be forwarded to third-party tools as is.
+- Messages and details are redacted before they reach app code: JWTs, `Bearer` credentials, URL query strings and token-like URL path segments are removed. The redaction is pattern-based, so `toAttributes()`, which carries no message text, is the safest thing to forward to third-party tools.
+- **Android**: `initialize` failures carry the SDK exception's details instead of a message alone, and the underlying error is the root of the exception's cause chain, where the transport failure that explains a timeout actually sits.
 - In development, a caller mistake also prints one console warning naming the fix, so a catch that shows a generic toast cannot hide it.
 - **Android**: the SDK's own error code, the HTTP status of an SDK REST failure, and DocuSign's error body from the recipient-view request are kept. The module previously forwarded only the exception message, and the `signingUrl` strategy discarded the error body entirely when it fell back to `fetch`.
 - New [error handling guide](docs/ERROR_HANDLING.md) covering translated copy, retries, reporting to Amplitude, New Relic and Sentry, and reading the results in production. Its examples live in `examples/error-handling` and are type-checked in CI.

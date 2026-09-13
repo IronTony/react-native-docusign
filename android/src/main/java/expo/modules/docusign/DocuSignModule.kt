@@ -87,7 +87,17 @@ class DocuSignModule : Module() {
         DocuSignManager.initialize(context, config.integratorKey, environment)
         promise.resolve(null)
       } catch (e: Exception) {
-        promise.reject("initialize_failed", e.message ?: "Unknown error", e)
+        // A runtime failure of the SDK itself, so it carries the exception's details rather than
+        // rejecting with a message alone.
+        settleFailure(
+          DocuSignFailure(
+            code = "initialize_failed",
+            message = "DocuSign SDK could not be initialized: ${e.message ?: e.javaClass.simpleName}",
+            details = FailureDetails.from(e)
+          ),
+          null,
+          promise
+        )
       }
     }
 

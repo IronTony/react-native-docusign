@@ -72,8 +72,11 @@ function settleSigningOutcome(outcome: NativeSigningOutcome): SigningResult {
 /**
  * Configures the underlying DocuSign SDK. Rejects with a `DocuSignError`.
  */
-export function initialize(config: DocuSignConfig): Promise<void> {
-  return callNative(() => DocuSignModule.initialize(config));
+export async function initialize(config: DocuSignConfig): Promise<void> {
+  const outcome = await callNative(() => DocuSignModule.initialize(config));
+  if (outcome?.status === 'error') {
+    throw report(fromFailurePayload(outcome));
+  }
 }
 
 /**
