@@ -56,7 +56,7 @@ public class DocuSignModule: Module {
         )
         promise.resolve(nil)
       } catch {
-        promise.reject(error)
+        self.settleFailure(error, envelopeId: nil, promise: promise)
       }
     }
 
@@ -74,21 +74,20 @@ public class DocuSignModule: Module {
           switch result {
           case .success(let info):
             promise.resolve([
-              "accountId": info.accountId,
-              "userId": info.userId,
-              "userName": info.userName,
-              "email": info.email
+              "status": "success",
+              "account": [
+                "accountId": info.accountId,
+                "userId": info.userId,
+                "userName": info.userName,
+                "email": info.email
+              ]
             ])
           case .failure(let error):
-            self.sendEvent("onSigningError", [
-              "errorCode": "login_failed",
-              "errorMessage": error.localizedDescription
-            ])
-            promise.reject(LoginFailedException(error.localizedDescription))
+            self.settleFailure(error, envelopeId: nil, promise: promise)
           }
         }
       } catch {
-        promise.reject(error)
+        self.settleFailure(error, envelopeId: nil, promise: promise)
       }
     }
 
@@ -102,28 +101,13 @@ public class DocuSignModule: Module {
         ) { result in
           switch result {
           case .success(let outcome):
-            promise.resolve([
-              "status": outcome.status,
-              "envelopeId": outcome.envelopeId,
-              "errorCode": outcome.errorCode as Any,
-              "errorMessage": outcome.errorMessage as Any
-            ])
+            promise.resolve(outcome.payload)
           case .failure(let error):
-            // Forward the failure's own code. Hard-coding signing_failed flattened
-            // presentation_failed and hid which stage failed. promise.reject(error) is not the
-            // alternative here: it wraps anything that is not an Exception, so a raw SDK NSError
-            // would surface as ERR_UNEXPECTED.
-            let code = (error as? CodedError)?.code ?? "signing_failed"
-            self.sendEvent("onSigningError", [
-              "envelopeId": params.envelopeId,
-              "errorCode": code,
-              "errorMessage": error.localizedDescription
-            ])
-            promise.reject(code, error.localizedDescription)
+            self.settleFailure(error, envelopeId: params.envelopeId, promise: promise)
           }
         }
       } catch {
-        promise.reject(error)
+        self.settleFailure(error, envelopeId: params.envelopeId, promise: promise)
       }
     }
 
@@ -136,28 +120,13 @@ public class DocuSignModule: Module {
         ) { result in
           switch result {
           case .success(let outcome):
-            promise.resolve([
-              "status": outcome.status,
-              "envelopeId": outcome.envelopeId,
-              "errorCode": outcome.errorCode as Any,
-              "errorMessage": outcome.errorMessage as Any
-            ])
+            promise.resolve(outcome.payload)
           case .failure(let error):
-            // Forward the failure's own code. Hard-coding signing_failed flattened
-            // presentation_failed and hid which stage failed. promise.reject(error) is not the
-            // alternative here: it wraps anything that is not an Exception, so a raw SDK NSError
-            // would surface as ERR_UNEXPECTED.
-            let code = (error as? CodedError)?.code ?? "signing_failed"
-            self.sendEvent("onSigningError", [
-              "envelopeId": params.envelopeId,
-              "errorCode": code,
-              "errorMessage": error.localizedDescription
-            ])
-            promise.reject(code, error.localizedDescription)
+            self.settleFailure(error, envelopeId: params.envelopeId, promise: promise)
           }
         }
       } catch {
-        promise.reject(error)
+        self.settleFailure(error, envelopeId: params.envelopeId, promise: promise)
       }
     }
 
@@ -181,5 +150,26 @@ public class DocuSignModule: Module {
         promise.resolve(nil)
       }
     }
+  }
+
+  /// The one place a failure is settled.
+  ///
+  /// A runtime failure resolves with its details, because a rejection reaches JS with only a code
+  /// and a message and would drop them. A caller mistake rejects. The message comes from
+  /// `CodedError.description`, since Expo's `Exception` is not a `LocalizedError` and its
+  /// `localizedDescription` is Foundation's generic text.
+  private func settleFailure(_ error: Error, envelopeId: String?, promise: Promise) {
+    if let failure = error as? DocuSignFailure {
+      var payload = failure.payload(fallbackEnvelopeId: envelopeId)
+      sendEvent("onSigningError", payload)
+      payload["status"] = "error"
+      promise.resolve(payload)
+      return
+    }
+    let codedError = error as? CodedError
+    promise.reject(
+      codedError?.code ?? "unexpected",
+      codedError?.description ?? error.localizedDescription
+    )
   }
 }
