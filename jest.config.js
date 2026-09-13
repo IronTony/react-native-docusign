@@ -15,5 +15,17 @@ module.exports = {
       lines: 80,
       statements: 80,
     },
+    'src/api.ts': {
+      branches: 80,
+      functions: 80,
+      lines: 80,
+      statements: 80,
+    },
+    'src/DocuSignError.ts': {
+      branches: 80,
+      functions: 80,
+      lines: 80,
+      statements: 80,
+    },
   },
 };

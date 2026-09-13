@@ -7,29 +7,102 @@ import {
   LoginAttemptEvent,
   SigningCancelledEvent,
   SigningCompleteEvent,
-  SigningErrorEvent,
   SigningResult,
 } from './DocuSign.types';
-import DocuSignModule from './DocuSignModule';
+import {
+  DocuSignError,
+  fromFailurePayload,
+  toDocuSignError,
+} from './DocuSignError';
+import DocuSignModule, { NativeSigningOutcome } from './DocuSignModule';
 
 export type DocuSignSubscription = {
   remove(): void;
 };
 
-export function initialize(config: DocuSignConfig): Promise<void> {
-  return DocuSignModule.initialize(config);
+export type DocuSignErrorListener = (error: DocuSignError) => void;
+
+const errorListeners = new Set<DocuSignErrorListener>();
+
+/**
+ * Every failure passes through here exactly once before it is thrown, so a
+ * listener sees the same errors a `catch` does, caller mistakes included.
+ */
+function report(error: DocuSignError): DocuSignError {
+  if (__DEV__ && error.reason === 'usage') {
+    console.warn(`[react-native-docusign] ${error.code}: ${error.message}`);
+  }
+  errorListeners.forEach((listener) => {
+    try {
+      listener(error);
+    } catch (listenerError) {
+      // A broken logging callback must not replace the signing failure the
+      // caller is about to receive.
+      if (__DEV__) {
+        console.error(
+          '[react-native-docusign] error listener threw',
+          listenerError,
+        );
+      }
+    }
+  });
+  return error;
 }
 
-export function loginWithAccessToken(
+async function callNative<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (nativeRejection) {
+    throw report(toDocuSignError(nativeRejection));
+  }
+}
+
+function settleSigningOutcome(outcome: NativeSigningOutcome): SigningResult {
+  if (outcome.status === 'error') {
+    throw report(fromFailurePayload(outcome));
+  }
+  return {
+    status: outcome.status,
+    envelopeId: outcome.envelopeId,
+    ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
+    ...(outcome.errorMessage ? { errorMessage: outcome.errorMessage } : {}),
+  };
+}
+
+/**
+ * Configures the underlying DocuSign SDK. Rejects with a `DocuSignError`.
+ */
+export function initialize(config: DocuSignConfig): Promise<void> {
+  return callNative(() => DocuSignModule.initialize(config));
+}
+
+/**
+ * Logs the SDK in with an access token. Rejects with a `DocuSignError` whose
+ * `reason` tells an expired token (`auth`) from a DocuSign account that is not
+ * set up for the mobile SDK (`configuration`).
+ */
+export async function loginWithAccessToken(
   params: DocuSignAuthParams,
 ): Promise<DocuSignAccountInfo> {
-  return DocuSignModule.loginWithAccessToken(params);
+  const outcome = await callNative(() =>
+    DocuSignModule.loginWithAccessToken(params),
+  );
+  if (outcome.status === 'error') {
+    throw report(fromFailurePayload(outcome));
+  }
+  return outcome.account;
 }
 
-export function presentCaptiveSigning(
+/**
+ * Presents captive signing. Resolves with `completed` or `cancelled`, and
+ * rejects with a `DocuSignError` for every failure.
+ */
+export async function presentCaptiveSigning(
   params: CaptiveSigningParams,
 ): Promise<SigningResult> {
-  return DocuSignModule.presentCaptiveSigning(params);
+  return settleSigningOutcome(
+    await callNative(() => DocuSignModule.presentCaptiveSigning(params)),
+  );
 }
 
 /**
@@ -39,12 +112,15 @@ export function presentCaptiveSigning(
  * encodes recipient identity via a short-lived token. {@link initialize} is
  * still required.
  *
- * Supported on iOS and Android.
+ * Supported on iOS and Android. Resolves with `completed` or `cancelled`, and
+ * rejects with a `DocuSignError` for every failure.
  */
-export function presentCaptiveSigningWithUrl(
+export async function presentCaptiveSigningWithUrl(
   params: CaptiveSigningUrlParams,
 ): Promise<SigningResult> {
-  return DocuSignModule.presentCaptiveSigningWithUrl(params);
+  return settleSigningOutcome(
+    await callNative(() => DocuSignModule.presentCaptiveSigningWithUrl(params)),
+  );
 }
 
 export function logout(): Promise<void> {
@@ -100,10 +176,21 @@ export function addSigningCancelledListener(
   return DocuSignModule.addListener('onSigningCancelled', listener);
 }
 
+/**
+ * Receives every `DocuSignError` raised by `initialize`, `loginWithAccessToken`,
+ * `presentCaptiveSigning` and `presentCaptiveSigningWithUrl`, caller mistakes
+ * included, once each and before the call rejects. Register it once at startup
+ * to send failures to your analytics or error reporting tool.
+ */
 export function addSigningErrorListener(
-  listener: (event: SigningErrorEvent) => void,
+  listener: DocuSignErrorListener,
 ): DocuSignSubscription {
-  return DocuSignModule.addListener('onSigningError', listener);
+  errorListeners.add(listener);
+  return {
+    remove: () => {
+      errorListeners.delete(listener);
+    },
+  };
 }
 
 export function addLoginAttemptListener(

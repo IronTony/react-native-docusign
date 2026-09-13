@@ -66,12 +66,18 @@ export type CaptiveSigningUrlParams = {
   recipientId?: string;
 };
 
+/**
+ * `'error'` is never returned since 2.0.0: every failure rejects with a
+ * `DocuSignError` instead. It stays in the union so existing `switch`
+ * statements keep compiling.
+ */
 export type SigningStatus = 'completed' | 'cancelled' | 'error';
 
 export type SigningResult = {
   status: SigningStatus;
   envelopeId: string;
   errorCode?: string;
+  /** For `cancelled`, the SDK's exit reason when it provides one. */
   errorMessage?: string;
 };
 
@@ -84,10 +90,25 @@ export type SigningCancelledEvent = {
   reason?: string;
 };
 
+/**
+ * The raw failure payload native code sends, both as the resolved value of a
+ * failed call and as the `onSigningError` event on `DocuSignModule`. Apps should
+ * not need it: the functions exported by this package turn it into a
+ * `DocuSignError`, which is what `addSigningErrorListener` delivers.
+ */
 export type SigningErrorEvent = {
   envelopeId?: string;
   errorCode: string;
   errorMessage: string;
+  nativeDomain?: string;
+  nativeCode?: string;
+  nativeMessage?: string;
+  underlyingDomain?: string;
+  underlyingCode?: string;
+  underlyingMessage?: string;
+  httpStatus?: number;
+  docusignErrorCode?: string;
+  docusignMessage?: string;
 };
 
 export type LoginAttemptEvent = {

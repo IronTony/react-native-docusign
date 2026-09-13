@@ -7,6 +7,7 @@ import {
   DocuSignConfig,
   SigningResult,
 } from './DocuSign.types';
+import { DocuSignError, toDocuSignError } from './DocuSignError';
 import {
   addSigningErrorListener,
   endSigningSession,
@@ -55,7 +56,7 @@ export type UseDocuSignSigningOptions = {
 
 export type UseDocuSignSigningReturn = {
   state: DocuSignSigningState;
-  error: Error | null;
+  error: DocuSignError | null;
   result: SigningResult | null;
   initialize: () => Promise<void>;
   startSigning: (session: SigningSession) => Promise<SigningResult>;
@@ -68,7 +69,7 @@ export function useDocuSignSigning(
   const { config, autoInitialize = true } = options;
 
   const [state, setState] = useState<DocuSignSigningState>(SIGNING_STATE.IDLE);
-  const [error, setError] = useState<Error | null>(null);
+  const [error, setError] = useState<DocuSignError | null>(null);
   const [result, setResult] = useState<SigningResult | null>(null);
   const initializedRef = useRef(false);
 
@@ -81,7 +82,7 @@ export function useDocuSignSigning(
       initializedRef.current = true;
       setState(SIGNING_STATE.READY);
     } catch (e) {
-      const err = e instanceof Error ? e : new Error(String(e));
+      const err = toDocuSignError(e);
       setError(err);
       setState(SIGNING_STATE.ERROR);
       throw err;
@@ -105,8 +106,8 @@ export function useDocuSignSigning(
   );
 
   useEffect(function attachErrorListener() {
-    const errorSub = addSigningErrorListener((event) => {
-      setError(new Error(`${event.errorCode}: ${event.errorMessage}`));
+    const errorSub = addSigningErrorListener((signingError) => {
+      setError(signingError);
     });
     return () => {
       errorSub.remove();
@@ -161,7 +162,7 @@ export function useDocuSignSigning(
         setState(stateForResult(signingResult.status));
         return signingResult;
       } catch (e) {
-        const err = e instanceof Error ? e : new Error(String(e));
+        const err = toDocuSignError(e);
         setError(err);
         setState(SIGNING_STATE.ERROR);
         throw err;

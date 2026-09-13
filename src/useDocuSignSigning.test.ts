@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 
+import { DocuSignError } from './DocuSignError';
 import * as api from './api';
 import { SIGNING_STATE, useDocuSignSigning } from './useDocuSignSigning';
 
@@ -136,8 +137,12 @@ describe('useDocuSignSigning', () => {
     expect(result.current.state).toBe(SIGNING_STATE.CANCELLED);
   });
 
-  it('captures error outcome into state and rethrows', async () => {
-    const failure = new Error('SDK rejected token');
+  it('captures a DocuSignError from the api into state and rethrows it unchanged', async () => {
+    const failure = new DocuSignError({
+      code: 'login_failed',
+      message: 'SDK rejected token',
+      http: { status: 401 },
+    });
     mockedApi.loginWithAccessToken.mockRejectedValue(failure);
 
     const { result } = renderHook(() => useDocuSignSigning({ config }));
@@ -161,6 +166,37 @@ describe('useDocuSignSigning', () => {
 
     expect(result.current.state).toBe(SIGNING_STATE.ERROR);
     expect(result.current.error).toBe(failure);
+  });
+
+  it('wraps anything that is not a DocuSignError before storing it', async () => {
+    mockedApi.presentCaptiveSigning.mockRejectedValue(
+      new Error('unexpected crash'),
+    );
+
+    const { result } = renderHook(() => useDocuSignSigning({ config }));
+
+    await waitFor(() => {
+      expect(result.current.state).toBe(SIGNING_STATE.READY);
+    });
+
+    await act(async () => {
+      await expect(
+        result.current.startSigning({
+          type: 'session',
+          accessToken: 'token',
+          envelopeId: 'env-1',
+          recipientUserName: 'r',
+          recipientEmail: 'r@example.com',
+          recipientClientUserId: 'client-1',
+        }),
+      ).rejects.toBeInstanceOf(DocuSignError);
+    });
+
+    expect(result.current.error).toBeInstanceOf(DocuSignError);
+    expect(result.current.error).toMatchObject({
+      code: 'unexpected',
+      message: 'unexpected crash',
+    });
   });
 
   it('reset() calls endSigningSession when initialized and returns to ready', async () => {
@@ -195,13 +231,15 @@ describe('useDocuSignSigning', () => {
     expect(result.current.state).toBe(SIGNING_STATE.IDLE);
   });
 
-  it('subscribes to signing errors and surfaces them into error state', async () => {
-    let listener:
-      | ((event: { errorCode: string; errorMessage: string }) => void)
-      | undefined;
+  it('subscribes to signing errors and stores the delivered DocuSignError', async () => {
+    let listener: api.DocuSignErrorListener | undefined;
     mockedApi.addSigningErrorListener.mockImplementation((cb) => {
       listener = cb;
       return { remove: jest.fn() };
+    });
+    const delivered = new DocuSignError({
+      code: 'signing_failed',
+      message: 'boom',
     });
 
     const { result } = renderHook(() => useDocuSignSigning({ config }));
@@ -211,11 +249,10 @@ describe('useDocuSignSigning', () => {
     });
 
     act(() => {
-      listener?.({ errorCode: 'signing_failed', errorMessage: 'boom' });
+      listener?.(delivered);
     });
 
-    expect(result.current.error).toBeInstanceOf(Error);
-    expect(result.current.error?.message).toBe('signing_failed: boom');
+    expect(result.current.error).toBe(delivered);
   });
 
   it('removes the error listener on unmount', () => {
@@ -231,7 +268,10 @@ describe('useDocuSignSigning', () => {
   });
 
   it('captures initialization failure into error state', async () => {
-    const failure = new Error('init failed');
+    const failure = new DocuSignError({
+      code: 'initialize_failed',
+      message: 'init failed',
+    });
     mockedApi.initialize.mockRejectedValue(failure);
 
     const { result } = renderHook(() => useDocuSignSigning({ config }));
