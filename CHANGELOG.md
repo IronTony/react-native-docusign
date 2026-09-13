@@ -14,6 +14,7 @@ Upgrading from 1.x: every failure now rejects with a `DocuSignError`. Check any 
 ### Native SDKs
 
 - **Android**: DocuSign Android SDK 2.1.4 to 2.1.7, the version DocuSign's install guide documents. Its own dependencies moved to Glide 5.0.4, OkHttp 4.12.0, RxJava 3, Room 2.7.2 and kotlin-stdlib 2.2.10, and it no longer pulls in RxJava 2, slf4j or commons-codec. Gradle resolves these across the whole app, so an app on an older OkHttp or Room gets the newer one. Compiling the module against it needs Kotlin 2.1 or newer, which Expo SDK 55 already ships. The config plugin still strips the Glide class from `sdk-pdf`, now pinned to the 2.1.7 hash, so run `npx expo prebuild` after upgrading to fetch the new AAR.
+- **iOS**: DocuSign iOS SDK 4.1.1 to 4.3.0. DocuSign 4.3.0 fixes a double JavaScript invocation that caused signing backend errors. The captive signing screen gains Print, Download and Download Separate PDFs menu options (added in DocuSign 4.2.0), and the SDK has no setup key to hide them. DocuSign also inserted a new error code in the middle of its `DSMErrorCode` enum, so for DocuSign's own errors from 1022 up, `native.code` is one higher than on 4.1.1. A project with a committed `Podfile.lock` needs `pod update DocuSign`, because `pod install` alone keeps the locked 4.1.1 and fails to resolve.
 
 ### Breaking changes
 

@@ -18,7 +18,7 @@ Pod::Spec.new do |s|
   s.static_framework = true
 
   s.dependency 'ExpoModulesCore'
-  s.dependency 'DocuSign', '~> 4.1.1'
+  s.dependency 'DocuSign', '~> 4.3.0'
 
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
