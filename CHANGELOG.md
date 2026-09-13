@@ -9,7 +9,11 @@
 
 ## 2.0.0
 
-Upgrading from 1.x: every failure now rejects with a `DocuSignError`. Check any code that branches on `error.code`, matches message text, handles `status: 'error'` from `presentCaptiveSigning*`, or reads `errorCode` in an `addSigningErrorListener` callback. Codes are the lowercase codes the README documents, on both platforms, where iOS previously emitted `ERR_`-prefixed variants and Android rejected most failures as `signing_failed`. The new Android `launchStrategy` is opt-in.
+Upgrading from 1.x: every failure now rejects with a `DocuSignError`. Check any code that branches on `error.code`, matches message text, handles `status: 'error'` from `presentCaptiveSigning*`, or reads `errorCode` in an `addSigningErrorListener` callback. Codes are the lowercase codes the README documents, on both platforms, where iOS previously emitted `ERR_`-prefixed variants and Android rejected most failures as `signing_failed`. The new Android `launchStrategy` is opt-in. Both native SDKs also move forward, see [Native SDKs](#native-sdks) for what that changes in your app.
+
+### Native SDKs
+
+- **Android**: DocuSign Android SDK 2.1.4 to 2.1.7, the version DocuSign's install guide documents. Its own dependencies moved to Glide 5.0.4, OkHttp 4.12.0, RxJava 3, Room 2.7.2 and kotlin-stdlib 2.2.10, and it no longer pulls in RxJava 2, slf4j or commons-codec. Gradle resolves these across the whole app, so an app on an older OkHttp or Room gets the newer one. Compiling the module against it needs Kotlin 2.1 or newer, which Expo SDK 55 already ships. The config plugin still strips the Glide class from `sdk-pdf`, now pinned to the 2.1.7 hash, so run `npx expo prebuild` after upgrading to fetch the new AAR.
 
 ### Breaking changes
 

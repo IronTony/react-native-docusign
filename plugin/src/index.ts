@@ -16,16 +16,16 @@ const DEFAULT_CAMERA_PERMISSION =
 const DEFAULT_PHOTO_PERMISSION =
   'Allows selecting photos to attach to DocuSign documents.';
 
-const SDK_PDF_VERSION = '2.1.4';
+const SDK_PDF_VERSION = '2.1.7';
 const SDK_PDF_UPSTREAM_URL = `https://docucdn-a.akamaihd.net/prod/docusignandroidsdk/com/docusign/sdk-pdf/${SDK_PDF_VERSION}/sdk-pdf-${SDK_PDF_VERSION}.aar`;
-// SHA-256 of the upstream `sdk-pdf-2.1.4.aar` as published on DocuSign's CDN.
+// SHA-256 of the upstream `sdk-pdf-2.1.7.aar` as published on DocuSign's CDN.
 // Verified at the time this version of the plugin was cut. Any deviation
 // (CDN tampering, DNS hijack, partial download) causes the plugin to throw
 // rather than write a binary we cannot vouch for. To bump the upstream SDK
 // version, recompute this hash locally:
 //   curl -sSL <SDK_PDF_UPSTREAM_URL> | shasum -a 256
 const SDK_PDF_SHA256 =
-  '26eb53effd74d117397fbfd77e46a94786bbbd05fb9318fdbbff389c1a4dcb0a';
+  '3f9be5ffcde3405ae422f7fe926d6ea716336b7cfc8ff9185d7cfb1d6203ab4a';
 const STRIPPED_AAR_FILENAME = `sdk-pdf-${SDK_PDF_VERSION}-stripped.aar`;
 const GLIDE_GENERATED_CLASS =
   'com/bumptech/glide/GeneratedAppGlideModuleImpl.class';
@@ -172,7 +172,7 @@ const withDocuSignAndroidStrippedAarFlatDir: ConfigPlugin = (config) =>
   });
 
 /**
- * Downloads the upstream `com.docusign:sdk-pdf:2.1.4` AAR from DocuSign's
+ * Downloads the upstream `com.docusign:sdk-pdf:2.1.7` AAR from DocuSign's
  * public Maven repository and strips the pre-generated
  * `com.bumptech.glide.GeneratedAppGlideModuleImpl` class from its
  * `classes.jar`. The stripped artifact is written to
