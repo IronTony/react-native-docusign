@@ -80,7 +80,7 @@ internal final class DocuSignManager: NSObject {
     }
 
     guard let url = URL(string: host) else {
-      throw NotInitializedException()
+      throw InitializeFailedException("invalid DocuSign host URL \(host)")
     }
 
     self.integratorKey = integratorKey
@@ -346,6 +346,9 @@ internal final class DocuSignManager: NSObject {
     }
   }
 
+  /// The SDK's login error rarely says why. A second call to `/oauth/userinfo` with the same token
+  /// separates an expired or wrongly scoped token (401 or 403) from a valid token the SDK still
+  /// refuses, which points at DocuSign admin configuration rather than the backend.
   private func classifyLoginFailure(
     accessToken: String,
     sdkError: Error,
@@ -353,37 +356,42 @@ internal final class DocuSignManager: NSObject {
     integratorKey: String,
     completion: @escaping (Result<DocuSignAccountInfo, Error>) -> Void
   ) {
-    let sdkMsg = (sdkError as NSError).localizedDescription
-    let sdkCode = (sdkError as NSError).code
-
     probeUserInfoStatus(accessToken: accessToken) { probe in
-      let enrichedMsg: String
+      var details = FailureDetails(error: sdkError)
+      let summary: String
       switch probe {
-      case .ok:
-        enrichedMsg = "SDK rejected a valid token. Likely causes: Mobile SDK not enabled for integration key \(integratorKey), or iOS bundle ID not whitelisted in DocuSign admin. Contact DocuSign support. (SDK: \(sdkMsg)) | \(diagnostic)"
-      case .unauthorized:
-        enrichedMsg = "Access token rejected by DocuSign /oauth/userinfo. Re-mint via JWT Bearer Grant with scope=signature impersonation. (SDK: \(sdkMsg)) | \(diagnostic)"
-      case .network(let netMsg):
-        enrichedMsg = "\(sdkMsg) (userinfo probe network error: \(netMsg)) | \(diagnostic)"
+      case .response(let status, let body):
+        details.setResponse(status: status, body: body)
+        if (200..<300).contains(status) {
+          summary = "DocuSign rejected a valid access token. Check that AppIdentifierPrefix is set in Info.plist, that the Mobile SDK is enabled for integration key \(integratorKey), and that the iOS bundle ID is allowed in DocuSign admin."
+        } else if status == 401 || status == 403 {
+          summary = "DocuSign rejected the access token. Mint a new token with the signature and impersonation scopes."
+        } else {
+          summary = "DocuSign login failed, and the userinfo check returned HTTP \(status)."
+        }
+      case .transportFailed(let error):
+        details.setUnderlyingIfAbsent(error)
+        summary = "DocuSign login failed, and the userinfo check could not reach DocuSign."
+      case .unavailable(let reason):
+        summary = "DocuSign login failed, and the userinfo check could not run: \(reason)."
       }
-      let enriched = NSError(
-        domain: "DocuSign",
-        code: sdkCode,
-        userInfo: [NSLocalizedDescriptionKey: enrichedMsg]
-      )
-      completion(.failure(enriched))
+      completion(.failure(DocuSignFailure(
+        code: "login_failed",
+        message: "\(summary) (\(diagnostic))",
+        details: details
+      )))
     }
   }
 
   private enum UserInfoProbe {
-    case ok
-    case unauthorized
-    case network(String)
+    case response(status: Int, body: Data?)
+    case transportFailed(Error)
+    case unavailable(String)
   }
 
   private func probeUserInfoStatus(accessToken: String, completion: @escaping (UserInfoProbe) -> Void) {
     guard let base = oauthBaseURL() else {
-      completion(.network("no oauth base URL"))
+      completion(.unavailable("no OAuth base URL"))
       return
     }
     let url = base.appendingPathComponent("oauth/userinfo")
@@ -393,22 +401,16 @@ internal final class DocuSignManager: NSObject {
     request.setValue("application/json", forHTTPHeaderField: "Accept")
     request.timeoutInterval = 10
 
-    URLSession.shared.dataTask(with: request) { _, response, error in
+    URLSession.shared.dataTask(with: request) { data, response, error in
       if let error = error {
-        completion(.network(error.localizedDescription))
+        completion(.transportFailed(error))
         return
       }
       guard let http = response as? HTTPURLResponse else {
-        completion(.network("no HTTP response"))
+        completion(.unavailable("no HTTP response"))
         return
       }
-      if (200..<300).contains(http.statusCode) {
-        completion(.ok)
-      } else if http.statusCode == 401 || http.statusCode == 403 {
-        completion(.unauthorized)
-      } else {
-        completion(.network("userinfo HTTP \(http.statusCode)"))
-      }
+      completion(.response(status: http.statusCode, body: data))
     }.resume()
   }
 
@@ -449,7 +451,7 @@ internal final class DocuSignManager: NSObject {
     completion: @escaping (Result<ResolvedUserInfo, Error>) -> Void
   ) {
     guard let base = oauthBaseURL() else {
-      completion(.failure(LoginFailedException("Could not derive OAuth base URL")))
+      completion(.failure(Self.userInfoFailure("Could not derive the DocuSign OAuth base URL.", FailureDetails())))
       return
     }
     let url = base.appendingPathComponent("oauth/userinfo")
@@ -461,22 +463,29 @@ internal final class DocuSignManager: NSObject {
 
     URLSession.shared.dataTask(with: request) { data, response, error in
       if let error = error {
-        completion(.failure(LoginFailedException("userinfo request failed: \(error.localizedDescription)")))
+        completion(.failure(Self.userInfoFailure(
+          "The DocuSign userinfo request failed: \(error.localizedDescription)",
+          FailureDetails(error: error)
+        )))
         return
       }
       guard let http = response as? HTTPURLResponse else {
-        completion(.failure(LoginFailedException("userinfo: no HTTP response")))
+        completion(.failure(Self.userInfoFailure("The DocuSign userinfo request returned no HTTP response.", FailureDetails())))
         return
       }
       guard (200..<300).contains(http.statusCode), let data = data else {
-        let snippet = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-        completion(.failure(LoginFailedException("userinfo HTTP \(http.statusCode): \(snippet.prefix(200))")))
+        var details = FailureDetails()
+        details.setResponse(status: http.statusCode, body: data)
+        completion(.failure(Self.userInfoFailure(
+          "The DocuSign userinfo request returned HTTP \(http.statusCode).",
+          details
+        )))
         return
       }
       do {
         let decoded = try JSONDecoder().decode(UserInfoPayload.self, from: data)
         guard let account = Self.pickAccount(from: decoded.accounts, preferredId: preferredAccountId) else {
-          completion(.failure(LoginFailedException("userinfo: no accounts in response")))
+          completion(.failure(Self.userInfoFailure("The DocuSign userinfo response lists no accounts.", FailureDetails())))
           return
         }
         let host = account.base_uri.hasSuffix("/restapi") ? account.base_uri : account.base_uri + "/restapi"
@@ -489,9 +498,16 @@ internal final class DocuSignManager: NSObject {
         )
         completion(.success(resolved))
       } catch {
-        completion(.failure(LoginFailedException("userinfo decode error: \(error.localizedDescription)")))
+        completion(.failure(Self.userInfoFailure(
+          "The DocuSign userinfo response could not be read.",
+          FailureDetails(error: error)
+        )))
       }
     }.resume()
+  }
+
+  private static func userInfoFailure(_ message: String, _ details: FailureDetails) -> DocuSignFailure {
+    DocuSignFailure(code: "login_failed", message: message, details: details)
   }
 
   private static func pickAccount(from accounts: [UserInfoAccount], preferredId: String) -> UserInfoAccount? {
@@ -644,6 +660,33 @@ internal final class DocuSignManager: NSObject {
       throw NotLoggedInException()
     }
 
+    try claimPendingSlot(envelopeId: envelopeId, completion: completion)
+
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else { return }
+      guard let presentingViewController = self.presentingViewControllerOrSettle() else { return }
+      let envelopesManager = DSMEnvelopesManager()
+      envelopesManager.presentCaptiveSigning(
+        withPresenting: presentingViewController,
+        envelopeId: envelopeId,
+        recipientUserName: recipientUserName,
+        recipientEmail: recipientEmail,
+        recipientClientUserId: recipientClientUserId,
+        animated: true,
+        completion: { [weak self] (_: UIViewController?, error: Error?) in
+          guard let self = self, let error = error else { return }
+          self.resolvePending(.failure(Self.openFailure(error, envelopeId: envelopeId)))
+          // Success/cancel path is driven by DSMSigningCompletedNotification / DSMSigningCancelledNotification
+        }
+      )
+    }
+  }
+
+  /// Claims the single pending-signing slot, or throws when a ceremony is already open.
+  private func claimPendingSlot(
+    envelopeId: String,
+    completion: @escaping (Result<SigningOutcome, Error>) -> Void
+  ) throws {
     var alreadyInFlight = false
     stateQueue.sync {
       if pendingCompletion != nil {
@@ -654,32 +697,28 @@ internal final class DocuSignManager: NSObject {
       }
     }
     if alreadyInFlight {
-      throw SigningFailedException("A signing session is already in progress")
+      throw SigningInProgressException()
     }
+  }
 
-    guard let presentingViewController = Self.topmostViewController() else {
-      resolvePending(.failure(PresentationException("Could not find a view controller to present from")))
-      throw PresentationException("Could not find a view controller to present from")
+  /// Looks the presenter up on the main thread, where UIKit requires it. Doing this on the queue
+  /// the JS call arrived on read `UIApplication.shared` off-main. Without a presenter the slot is
+  /// settled as a caller mistake, so the promise never hangs.
+  private func presentingViewControllerOrSettle() -> UIViewController? {
+    if let presentingViewController = Self.topmostViewController() {
+      return presentingViewController
     }
+    resolvePending(.failure(PresentationException("Could not find a view controller to present from")))
+    return nil
+  }
 
-    DispatchQueue.main.async {
-      let envelopesManager = DSMEnvelopesManager()
-      envelopesManager.presentCaptiveSigning(
-        withPresenting: presentingViewController,
-        envelopeId: envelopeId,
-        recipientUserName: recipientUserName,
-        recipientEmail: recipientEmail,
-        recipientClientUserId: recipientClientUserId,
-        animated: true,
-        completion: { [weak self] (_: UIViewController?, error: Error?) in
-          guard let self = self else { return }
-          if let error = error {
-            self.resolvePending(.failure(error))
-          }
-          // Success/cancel path is driven by DSMSigningCompletedNotification / DSMSigningCancelledNotification
-        }
-      )
-    }
+  private static func openFailure(_ error: Error, envelopeId: String) -> DocuSignFailure {
+    DocuSignFailure(
+      code: "signing_failed",
+      message: "DocuSign could not open the signing ceremony: \((error as NSError).localizedDescription)",
+      details: FailureDetails(error: error),
+      envelopeId: envelopeId
+    )
   }
 
   /// Guards the URL handed to the SDK's URL overload.
@@ -713,28 +752,14 @@ internal final class DocuSignManager: NSObject {
     // Ahead of the pendingCompletion claim on purpose: a rejected URL must not occupy the slot, or
     // a later valid call would be refused as "already in progress".
     guard Self.isHttpsUrl(signingUrl) else {
-      throw SigningFailedException("Signing URL must be a valid HTTPS URL")
+      throw InvalidSigningUrlException()
     }
 
-    var alreadyInFlight = false
-    stateQueue.sync {
-      if pendingCompletion != nil {
-        alreadyInFlight = true
-      } else {
-        currentEnvelopeId = envelopeId
-        pendingCompletion = completion
-      }
-    }
-    if alreadyInFlight {
-      throw SigningFailedException("A signing session is already in progress")
-    }
+    try claimPendingSlot(envelopeId: envelopeId, completion: completion)
 
-    guard let presentingViewController = Self.topmostViewController() else {
-      resolvePending(.failure(PresentationException("Could not find a view controller to present from")))
-      throw PresentationException("Could not find a view controller to present from")
-    }
-
-    DispatchQueue.main.async {
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else { return }
+      guard let presentingViewController = self.presentingViewControllerOrSettle() else { return }
       let envelopesManager = DSMEnvelopesManager()
       envelopesManager.presentCaptiveSigning(
         withPresenting: presentingViewController,
@@ -743,10 +768,8 @@ internal final class DocuSignManager: NSObject {
         recipientId: recipientId,
         animated: true,
         completion: { [weak self] (_: UIViewController?, error: Error?) in
-          guard let self = self else { return }
-          if let error = error {
-            self.resolvePending(.failure(error))
-          }
+          guard let self = self, let error = error else { return }
+          self.resolvePending(.failure(Self.openFailure(error, envelopeId: envelopeId)))
         }
       )
     }
@@ -757,6 +780,16 @@ internal final class DocuSignManager: NSObject {
     let envelopeId: String
     let errorCode: String?
     let errorMessage: String?
+
+    var payload: [String: Any] {
+      let values: [String: Any?] = [
+        "status": status,
+        "envelopeId": envelopeId,
+        "errorCode": errorCode,
+        "errorMessage": errorMessage
+      ]
+      return values.compactMapValues { $0 }
+    }
   }
 
   private func resolvePending(_ result: Result<SigningOutcome, Error>) {
@@ -818,22 +851,16 @@ internal final class DocuSignManager: NSObject {
     let envelopeId = envelopeId(from: notification)
     let userInfo = notification.userInfo
 
+    // The SDK reports some failures through its cancel notification. Settling them as a failure
+    // keeps one rule for every consumer: resolved means completed or cancelled, and each failure
+    // rejects with its details. The module emits onSigningError when it settles the failure.
     if let sdkError = userInfo?[DSMErrorKey] as? Error {
-      let nsErr = sdkError as NSError
-      let errorMessage = nsErr.localizedDescription
-      let errorCode = String(nsErr.code)
-      let outcome = SigningOutcome(
-        status: "error",
-        envelopeId: envelopeId,
-        errorCode: errorCode,
-        errorMessage: errorMessage
-      )
-      module?.sendEvent("onSigningError", [
-        "envelopeId": envelopeId,
-        "errorCode": errorCode,
-        "errorMessage": errorMessage
-      ])
-      resolvePending(.success(outcome))
+      resolvePending(.failure(DocuSignFailure(
+        code: "signing_failed",
+        message: "DocuSign ended the signing ceremony with an error: \((sdkError as NSError).localizedDescription)",
+        details: FailureDetails(error: sdkError),
+        envelopeId: envelopeId
+      )))
       return
     }
 
