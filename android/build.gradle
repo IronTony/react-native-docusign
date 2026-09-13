@@ -70,14 +70,14 @@ dependencies {
   // collides with expo-image (and any other Glide-based library) at dex time.
   // We exclude the upstream sdk-pdf and link a locally-stripped copy from
   // libs/ that has the generated Glide classes removed.
-  implementation('com.docusign:androidsdk:2.1.4') {
+  implementation('com.docusign:androidsdk:2.1.7') {
     exclude group: 'com.docusign', module: 'sdk-pdf'
   }
-  implementation 'com.docusign:sdk-common:2.1.4'
+  implementation 'com.docusign:sdk-common:2.1.7'
   // Direct file reference instead of flatDir (name:..., ext:...). Gradle 9.0 no
   // longer honors subproject-scoped flatDir when resolving across project
-  // boundaries, so the stripped AAR (placed at libs/sdk-pdf-2.1.4-stripped.aar
+  // boundaries, so the stripped AAR (placed at libs/sdk-pdf-2.1.7-stripped.aar
   // by the config plugin) wasn't found and the build failed with
-  // "Could not find :sdk-pdf-2.1.4-stripped:".
-  implementation files("$projectDir/libs/sdk-pdf-2.1.4-stripped.aar")
+  // "Could not find :sdk-pdf-2.1.7-stripped:".
+  implementation files("$projectDir/libs/sdk-pdf-2.1.7-stripped.aar")
 }

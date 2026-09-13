@@ -95,11 +95,11 @@ The React Native layer never renders any of the signing UI. It only triggers the
 | Platform | Minimum OS           | SDK version                | Language    |
 | -------- | -------------------- | -------------------------- | ----------- |
 | iOS      | 15.1                 | DocuSign iOS SDK 4.1.1     | Swift 5.9   |
-| Android  | API 24 (Android 7.0) | DocuSign Android SDK 2.1.4 | Kotlin 1.8+ |
+| Android  | API 24 (Android 7.0) | DocuSign Android SDK 2.1.7 | Kotlin 2.1+ |
 
 **Runtime requirements:**
 
-- Expo SDK 55 or newer, OR bare React Native 0.74+
+- Expo SDK 55 or newer, OR bare React Native 0.74+ (Android needs Kotlin 2.1 or newer)
 - React Native New Architecture (Fabric + Hermes): supported, no additional configuration
 - Expo Go: NOT supported (custom native modules require a development build)
 
@@ -108,11 +108,11 @@ The React Native layer never renders any of the signing UI. It only triggers the
 The DocuSign native SDKs are **NOT bundled** inside this npm package. They are declared as external dependencies and resolved at consumer build time:
 
 - **iOS**: `pod 'DocuSign-iOS-SDK', '~> 4.1.1'` from the public CocoaPods trunk
-- **Android**: `com.docusign:androidsdk:2.1.4` from DocuSign's Maven repository (the config plugin adds the repo automatically)
+- **Android**: `com.docusign:androidsdk:2.1.7` from DocuSign's Maven repository (the config plugin adds the repo automatically)
 
 ### Android Glide collision workaround
 
-DocuSign's `com.docusign:sdk-pdf:2.1.4` AAR ships a pre-generated `com.bumptech.glide.GeneratedAppGlideModuleImpl.class` that collides at dex time with any other Glide-based library in the host app (notably `expo-image`, `react-native-fast-image`, and similar). To avoid this without redistributing DocuSign's binary, the Expo Config Plugin downloads `sdk-pdf-2.1.4.aar` directly from DocuSign's public Maven during `expo prebuild`, verifies its SHA-256 against a pinned hash, removes the offending class from the AAR's `classes.jar` in-memory, and writes the stripped artifact to `node_modules/react-native-docusign/android/libs/`. The existing flatDir injection picks it up at consumer build time. The download is cached after the first run; corrupted or partial caches are detected and regenerated. SHA mismatch or fetch failure aborts `expo prebuild` with an actionable error rather than silently letting the Android build fail later at the dex step.
+DocuSign's `com.docusign:sdk-pdf:2.1.7` AAR ships a pre-generated `com.bumptech.glide.GeneratedAppGlideModuleImpl.class` that collides at dex time with any other Glide-based library in the host app (notably `expo-image`, `react-native-fast-image`, and similar). To avoid this without redistributing DocuSign's binary, the Expo Config Plugin downloads `sdk-pdf-2.1.7.aar` directly from DocuSign's public Maven during `expo prebuild`, verifies its SHA-256 against a pinned hash, removes the offending class from the AAR's `classes.jar` in-memory, and writes the stripped artifact to `node_modules/react-native-docusign/android/libs/`. The existing flatDir injection picks it up at consumer build time. The download is cached after the first run; corrupted or partial caches are detected and regenerated. SHA mismatch or fetch failure aborts `expo prebuild` with an actionable error rather than silently letting the Android build fail later at the dex step.
 
 ### What ships inside this package
 
@@ -905,7 +905,7 @@ Ensure `pod install` completed successfully inside `ios/`. The podspec declares 
 
 The DocuSign SDK must be set to `use_frameworks!` mode. Most Expo projects use frameworks by default. If you recently switched to static libraries, add `use_frameworks! :linkage => :static` to your Podfile and rebuild.
 
-### Android build fails with "Could not find com.docusign:androidsdk:2.1.4"
+### Android build fails with "Could not find com.docusign:androidsdk:2.1.7"
 
 The DocuSign Android SDK is not on Maven Central; it is hosted on DocuSign's own Maven repository. Ensure the config plugin has added the repo to your project-level `build.gradle`. If running a bare project, manually add:
 
@@ -917,7 +917,7 @@ allprojects {
 }
 ```
 
-This is the URL DocuSign's own [Android SDK install guide](https://github.com/docusign/mobile-android-sdk) uses. It is a static file host with no index page, so opening it in a browser returns 404 even though Gradle resolves artifacts under it, such as `com/docusign/androidsdk/2.1.4/androidsdk-2.1.4.pom`. It also serves no `maven-metadata.xml`, so declare exact versions: a dynamic version such as `2.+` does not resolve.
+This is the URL DocuSign's own [Android SDK install guide](https://github.com/docusign/mobile-android-sdk) uses. It is a static file host with no index page, so opening it in a browser returns 404 even though Gradle resolves artifacts under it, such as `com/docusign/androidsdk/2.1.7/androidsdk-2.1.7.pom`. It also serves no `maven-metadata.xml`, so declare exact versions: a dynamic version such as `2.+` does not resolve.
 
 ### "not_logged_in" error when calling `presentCaptiveSigning`
 
@@ -955,6 +955,7 @@ The module uses `appContext.activityProvider.currentActivity` to get the current
 | This package version | Expo SDK | React Native | iOS SDK            | Android SDK            |
 | -------------------- | -------- | ------------ | ------------------ | ---------------------- |
 | 1.0.x                | 55.x     | 0.82.x       | DocuSign iOS 4.1.1 | DocuSign Android 2.1.4 |
+| 2.0.x                | 55.x+    | 0.85.x+      | DocuSign iOS 4.1.1 | DocuSign Android 2.1.7 |
 
 ## Limitations
 
