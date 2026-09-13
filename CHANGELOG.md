@@ -1,12 +1,5 @@
 # Changelog
 
-## Next
-
-### Fixes
-
-- Bump `adm-zip`, the Config Plugin's only runtime dependency, to 0.6.1. This clears GHSA-xcpc-8h2w-3j85 (high) and GHSA-vwc7-r8mq-g2x9 (moderate) from consumers' `npm audit`. Neither was reachable: the plugin never extracts to disk, and it only parses the AAR it downloaded after checking its SHA-256, or its own cached copy under `node_modules`.
-- **Android**: the Config Plugin matches the maven repository URL exactly when deciding whether `android/build.gradle` already declares it, and ignores declarations inside `//` and `/* */` comments. The substring check it replaces skipped adding the repository when the URL appeared only in a comment or as the prefix of a longer URL. It was also the CodeQL `js/incomplete-url-substring-sanitization` alert.
-
 ## 2.0.0
 
 Upgrading from 1.x: every failure now rejects with a `DocuSignError`. Check any code that branches on `error.code`, matches message text, handles `status: 'error'` from `presentCaptiveSigning*`, or reads `errorCode` in an `addSigningErrorListener` callback. Codes are the lowercase codes the README documents, on both platforms, where iOS previously emitted `ERR_`-prefixed variants and Android rejected most failures as `signing_failed`. The new Android `launchStrategy` is opt-in. Both native SDKs also move forward, see [Native SDKs](#native-sdks) for what that changes in your app.
@@ -39,6 +32,8 @@ Upgrading from 1.x: every failure now rejects with a `DocuSignError`. Check any 
 
 ### Fixes
 
+- Bump `adm-zip`, the Config Plugin's only runtime dependency, to 0.6.1. This clears GHSA-xcpc-8h2w-3j85 (high) and GHSA-vwc7-r8mq-g2x9 (moderate) from consumers' `npm audit`. Neither was reachable: the plugin never extracts to disk, and it only parses the AAR it downloaded after checking its SHA-256, or its own cached copy under `node_modules`.
+- **Android**: the Config Plugin matches the maven repository URL exactly when deciding whether `android/build.gradle` already declares it, and ignores declarations inside `//` and `/* */` comments. The substring check it replaces skipped adding the repository when the URL appeared only in a comment or as the prefix of a longer URL. It was also the CodeQL `js/incomplete-url-substring-sanitization` alert.
 - **iOS**: the module compiles without warnings under the Swift 6 compiler. Its exception classes restate the `@unchecked Sendable` conformance they inherit from Expo's `Exception`, and a `??` fallback on `DSMManager.defaultConfigurations()`, which never returns nil, is gone.
 - **iOS**: the view controller to present from is looked up on the main thread. The lookup read `UIApplication.shared` on the background queue the JS call arrived on.
 - **iOS**: a missing view controller settles the promise once. It previously completed the pending signing slot with a failure and also threw, rejecting the same call twice.
