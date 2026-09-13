@@ -31,7 +31,7 @@ export type NativeLoginOutcome =
   { status: 'success'; account: DocuSignAccountInfo } | NativeFailureOutcome;
 
 declare class DocuSignModule extends NativeModule<DocuSignModuleEvents> {
-  initialize(config: DocuSignConfig): Promise<void>;
+  initialize(config: DocuSignConfig): Promise<NativeFailureOutcome | null>;
   loginWithAccessToken(params: DocuSignAuthParams): Promise<NativeLoginOutcome>;
   presentCaptiveSigning(
     params: CaptiveSigningParams,

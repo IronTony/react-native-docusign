@@ -123,6 +123,36 @@ describe('redactSecrets', () => {
     );
   });
 
+  it.each([
+    ['a period', '.'],
+    ['a comma', ','],
+    ['a closing parenthesis', ')'],
+    ['several punctuation marks', ').'],
+  ])(
+    'redacts a token segment followed by %s and keeps the punctuation',
+    (_label, punctuation) => {
+      expect(
+        redactSecrets(
+          `blocked by https://account.docusign.com/o/abcdefghijklmnopqrstuvwxyz0123456789${punctuation} Try again`,
+        ),
+      ).toBe(
+        `blocked by https://account.docusign.com/o/[redacted]${punctuation} Try again`,
+      );
+    },
+  );
+
+  it('drops a query that is followed by punctuation', () => {
+    expect(
+      redactSecrets('open https://demo.docusign.net/Signing?slt=abc123.'),
+    ).toBe('open https://demo.docusign.net/Signing.');
+  });
+
+  it('keeps punctuation after a URL that has no path', () => {
+    expect(redactSecrets('host was https://demo.docusign.net.')).toBe(
+      'host was https://demo.docusign.net.',
+    );
+  });
+
   it('leaves a plain REST root readable', () => {
     expect(redactSecrets('host=https://demo.docusign.net/restapi')).toBe(
       'host=https://demo.docusign.net/restapi',

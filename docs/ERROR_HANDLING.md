@@ -29,7 +29,7 @@ class DocuSignError extends Error {
 }
 ```
 
-`code` says what failed and `reason` says why. `native` and `http` carry the raw facts behind both, for developers. `underlying` is the lower-level error when one is known: `NSUnderlyingErrorKey` on iOS, the exception cause on Android, or the transport error of a request the package made itself.
+`code` says what failed and `reason` says why. `native` and `http` carry the raw facts behind both, for developers. `underlying` is the lower-level error when one is known: `NSUnderlyingErrorKey` on iOS, the root of the exception's cause chain on Android, or the transport error of a request the package made itself.
 
 ### Codes
 
@@ -123,9 +123,11 @@ See [`report.ts`](#reportts) for Amplitude, New Relic and Sentry.
 
 ### What is safe to send
 
-The package redacts before an error reaches your code. JWTs, `Bearer` credentials, URL query strings and token-like URL path segments are removed from `message`, `native` and `http`. The access token and the signing URL never appear in any field. The attributes contain identifiers only.
+The package never writes the access token or a signing URL into an error itself. Text that comes from the DocuSign SDKs or from DocuSign's responses can echo them back, so before an error reaches your code the package removes JWTs, `Bearer` credentials, URL query strings and URL path segments of 20 or more token characters from `message`, `native` and `http`.
 
-Your app still owns redaction of its own context. If you add a user's email or name next to the error, scrub it the way you scrub the rest of your analytics.
+That redaction is pattern-based, which makes it a strong default rather than a guarantee: a secret in a shape those patterns do not recognise would pass through. The attributes from `toAttributes()` carry no message text at all, only codes, domains, statuses and the envelope id, so they are the safest thing to send.
+
+Your app still owns redaction of its own context. If you add a user's email or name next to the error, or forward `error.message`, scrub it the way you scrub the rest of your analytics.
 
 ## Reading it in production
 
