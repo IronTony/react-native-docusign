@@ -105,24 +105,24 @@ class DocuSignModule : Module() {
           onSuccess = { info ->
             promise.resolve(
               mapOf(
-                "accountId" to info.accountId,
-                "userId" to info.userId,
-                "userName" to info.userName,
-                "email" to info.email
+                "status" to "success",
+                "account" to mapOf(
+                  "accountId" to info.accountId,
+                  "userId" to info.userId,
+                  "userName" to info.userName,
+                  "email" to info.email
+                )
               )
             )
           },
-          onFailure = { error ->
-            emitSigningError(null, "login_failed", error.message ?: "Unknown error")
-            promise.reject("login_failed", error.message ?: "Unknown error", error as? Exception)
-          }
+          onFailure = { error -> settleFailure(error, null, promise) }
         )
       }
     }
 
     AsyncFunction("presentCaptiveSigning") { params: CaptiveSigningRecord, promise: Promise ->
       val activity: Activity = appContext.activityProvider?.currentActivity
-        ?: throw Exceptions.MissingActivity()
+        ?: throw PresentationException("no foreground Activity to present from")
 
       DocuSignManager.presentCaptiveSigning(
         activity = activity,
@@ -133,30 +133,15 @@ class DocuSignModule : Module() {
         launchStrategy = CaptiveSigningLaunchStrategy.fromString(params.launchStrategy)
       ) { result ->
         result.fold(
-          onSuccess = { outcome ->
-            promise.resolve(
-              mapOf(
-                "status" to outcome.status,
-                "envelopeId" to outcome.envelopeId,
-                "errorCode" to outcome.errorCode,
-                "errorMessage" to outcome.errorMessage
-              )
-            )
-          },
-          onFailure = { error ->
-            // No emitSigningError here. handleSigningError already emits, so emitting again
-            // delivered two events per failure and flattened recipient_signing_failed into
-            // signing_failed. Failures that never reach the manager (not initialized, not logged
-            // in) are programming errors and reject without an event, matching iOS.
-            promise.reject(codeOf(error), error.message ?: "Unknown error", error as? Exception)
-          }
+          onSuccess = { outcome -> promise.resolve(outcome.toPayload()) },
+          onFailure = { error -> settleFailure(error, params.envelopeId, promise) }
         )
       }
     }
 
     AsyncFunction("presentCaptiveSigningWithUrl") { params: CaptiveSigningUrlRecord, promise: Promise ->
       val activity: Activity = appContext.activityProvider?.currentActivity
-        ?: throw Exceptions.MissingActivity()
+        ?: throw PresentationException("no foreground Activity to present from")
 
       DocuSignManager.presentCaptiveSigningWithUrl(
         activity = activity,
@@ -165,19 +150,8 @@ class DocuSignModule : Module() {
         recipientId = params.recipientId.takeIf { it.isNotEmpty() }
       ) { result ->
         result.fold(
-          onSuccess = { outcome ->
-            promise.resolve(
-              mapOf(
-                "status" to outcome.status,
-                "envelopeId" to outcome.envelopeId,
-                "errorCode" to outcome.errorCode,
-                "errorMessage" to outcome.errorMessage
-              )
-            )
-          },
-          onFailure = { error ->
-            promise.reject(codeOf(error), error.message ?: "Unknown error", error as? Exception)
-          }
+          onSuccess = { outcome -> promise.resolve(outcome.toPayload()) },
+          onFailure = { error -> settleFailure(error, params.envelopeId, promise) }
         )
       }
     }
@@ -203,12 +177,22 @@ class DocuSignModule : Module() {
   }
 
   /**
-   * The rejection code for a manager failure. Every exception this module raises is a
-   * CodedException carrying an explicit code, so callers can tell not_initialized from
-   * not_logged_in from signing_failed instead of receiving signing_failed for all three.
+   * The one place a failure is settled.
+   *
+   * A runtime failure resolves with its details, because a rejection reaches JS with only a code
+   * and a message and would drop them. A caller mistake rejects with its own code.
    */
-  private fun codeOf(error: Throwable): String =
-    (error as? CodedException)?.code ?: "signing_failed"
+  private fun settleFailure(error: Throwable, envelopeId: String?, promise: Promise) {
+    when (error) {
+      is DocuSignFailure -> {
+        val payload = error.toPayload(envelopeId)
+        sendEvent("onSigningError", payload)
+        promise.resolve(payload + ("status" to "error"))
+      }
+      is CodedException -> promise.reject(error.code, error.message ?: "Unknown error", error)
+      else -> promise.reject("unexpected", error.message ?: "Unknown error", error)
+    }
+  }
 
   internal fun emitSigningComplete(envelopeId: String) {
     sendEvent("onSigningComplete", mapOf("envelopeId" to envelopeId))
@@ -216,16 +200,5 @@ class DocuSignModule : Module() {
 
   internal fun emitSigningCancelled(envelopeId: String, reason: String?) {
     sendEvent("onSigningCancelled", mapOf("envelopeId" to envelopeId, "reason" to reason))
-  }
-
-  internal fun emitSigningError(envelopeId: String?, errorCode: String, errorMessage: String) {
-    sendEvent(
-      "onSigningError",
-      mapOf(
-        "envelopeId" to envelopeId,
-        "errorCode" to errorCode,
-        "errorMessage" to errorMessage
-      )
-    )
   }
 }

@@ -2,8 +2,9 @@ package expo.modules.docusign
 
 import expo.modules.kotlin.exception.CodedException
 
-// Codes are given explicitly rather than inferred. CodedException derives a code from the class
-// name when none is provided, which would surface NotInitializedException to JS as
+// Caller mistakes only. Runtime failures travel as DocuSignFailure so their details survive the
+// bridge. Codes are given explicitly rather than inferred: CodedException derives a code from the
+// class name when none is provided, which would surface NotInitializedException to JS as
 // ERR_NOT_INITIALIZED, not the not_initialized documented in the README error table.
 
 class NotInitializedException : CodedException(
@@ -18,15 +19,15 @@ class NotLoggedInException : CodedException(
   null
 )
 
-class LoginFailedException(message: String) : CodedException(
-  "login_failed",
-  "DocuSign login failed: $message",
+class SigningInProgressException : CodedException(
+  "signing_in_progress",
+  "A signing session is already in progress. Wait for it to finish or call endSigningSession() first.",
   null
 )
 
-class SigningFailedException(message: String) : CodedException(
-  "signing_failed",
-  "DocuSign signing failed: $message",
+class InvalidSigningUrlException : CodedException(
+  "invalid_signing_url",
+  "signingUrl must be a non-empty https URL.",
   null
 )
 
