@@ -78,7 +78,15 @@ internal data class SigningOutcome(
   val envelopeId: String,
   val errorCode: String? = null,
   val errorMessage: String? = null
-)
+) {
+  fun toPayload(): Map<String, Any> =
+    listOfNotNull<Pair<String, Any>>(
+      "status" to status,
+      "envelopeId" to envelopeId,
+      errorCode?.let { "errorCode" to it },
+      errorMessage?.let { "errorMessage" to it }
+    ).toMap()
+}
 
 internal data class DocuSignAccountInfo(
   val accountId: String,
@@ -100,7 +108,11 @@ internal object DocuSignManager {
   @Volatile private var session: DocuSignSession? = null
   private val pendingCompletion = AtomicReference<((Result<SigningOutcome>) -> Unit)?>(null)
 
-  private enum class UserInfoProbe { OK, UNAUTHORIZED, NETWORK }
+  private sealed class UserInfoProbe {
+    /** `error` carries DocuSign's error body for a non-2xx status, and is null otherwise. */
+    data class Response(val status: Int, val error: DocuSignHttpException?) : UserInfoProbe()
+    data class TransportFailed(val error: Throwable) : UserInfoProbe()
+  }
 
   fun setModule(module: DocuSignModule) {
     this.module = module
@@ -167,34 +179,57 @@ internal object DocuSignManager {
           }
 
           override fun onError(exception: DSAuthenticationException) {
-            val sdkMsg = exception.message ?: "Unknown error"
-            classifyLoginFailure(accessToken, sdkMsg) { enrichedMsg ->
-              completion(Result.failure(LoginFailedException(enrichedMsg)))
+            classifyLoginFailure(accessToken, exception) { failure ->
+              completion(Result.failure(failure))
             }
           }
         }
       )
     } catch (e: Exception) {
-      completion(Result.failure(LoginFailedException(e.message ?: "Unknown error")))
+      completion(
+        Result.failure(
+          DocuSignFailure(
+            code = "login_failed",
+            message = "DocuSign login could not start: ${e.message ?: e.javaClass.simpleName}",
+            details = FailureDetails.from(e)
+          )
+        )
+      )
     }
   }
 
+  /**
+   * The SDK's login error rarely says why. A second call to `/oauth/userinfo` with the same token
+   * separates an expired or wrongly scoped token (401 or 403) from a valid token the SDK still
+   * refuses, which points at DocuSign admin configuration rather than the backend.
+   */
   private fun classifyLoginFailure(
     accessToken: String,
-    sdkMsg: String,
-    completion: (String) -> Unit
+    sdkError: Throwable,
+    completion: (DocuSignFailure) -> Unit
   ) {
     probeUserInfoStatus(accessToken) { probe ->
       val diagnostic = "integratorKey=$integratorKey environment=${environment.value}"
-      val enriched = when (probe) {
-        UserInfoProbe.OK ->
-          "SDK rejected a valid token. Likely causes: Mobile SDK not enabled for integration key $integratorKey, or Android package name not whitelisted in DocuSign admin. Contact DocuSign support. (SDK: $sdkMsg) | $diagnostic"
-        UserInfoProbe.UNAUTHORIZED ->
-          "Access token rejected by DocuSign /oauth/userinfo. Re-mint via JWT Bearer Grant with scope=signature impersonation. (SDK: $sdkMsg) | $diagnostic"
-        UserInfoProbe.NETWORK ->
-          "$sdkMsg | $diagnostic"
+      val sdkDetails = FailureDetails.from(sdkError)
+      val (summary, details) = when (probe) {
+        is UserInfoProbe.Response -> {
+          val withStatus = probe.error?.let { sdkDetails.withHttp(it) }
+            ?: sdkDetails.copy(httpStatus = probe.status)
+          val summary = when (probe.status) {
+            in 200..299 ->
+              "DocuSign rejected a valid access token. The Mobile SDK may not be enabled for integration key $integratorKey, or the Android package name is not allowed in DocuSign admin."
+            401, 403 ->
+              "DocuSign rejected the access token. Mint a new token with the signature and impersonation scopes."
+            else ->
+              "DocuSign login failed, and the userinfo check returned HTTP ${probe.status}."
+          }
+          summary to withStatus
+        }
+        is UserInfoProbe.TransportFailed ->
+          "DocuSign login failed, and the userinfo check could not reach DocuSign." to
+            sdkDetails.withUnderlyingIfAbsent(probe.error)
       }
-      completion(enriched)
+      completion(DocuSignFailure(code = "login_failed", message = "$summary ($diagnostic)", details = details))
     }
   }
 
@@ -213,17 +248,17 @@ internal object DocuSignManager {
           setRequestProperty("Authorization", "Bearer $accessToken")
           setRequestProperty("Accept", "application/json")
         }
-        when (val code = connection.responseCode) {
-          in 200..299 -> UserInfoProbe.OK
-          401, 403 -> UserInfoProbe.UNAUTHORIZED
-          else -> {
-            android.util.Log.w("DocuSign", "userinfo probe HTTP $code")
-            UserInfoProbe.NETWORK
-          }
+        val status = connection.responseCode
+        if (status in 200..299) {
+          UserInfoProbe.Response(status, null)
+        } else {
+          // Only the error body is read. A successful response is the user's profile, which the
+          // failure has no use for.
+          val body = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+          UserInfoProbe.Response(status, DocuSignHttpException.from(status, body))
         }
       } catch (e: Exception) {
-        android.util.Log.w("DocuSign", "userinfo probe error: ${e.message}")
-        UserInfoProbe.NETWORK
+        UserInfoProbe.TransportFailed(e)
       } finally {
         connection?.disconnect()
       }
@@ -327,7 +362,7 @@ internal object DocuSignManager {
     }
 
     if (!pendingCompletion.compareAndSet(null, completion)) {
-      completion(Result.failure(SigningFailedException("A signing session is already in progress")))
+      completion(Result.failure(SigningInProgressException()))
       return
     }
     currentEnvelopeId = envelopeId
@@ -353,8 +388,11 @@ internal object DocuSignManager {
   /**
    * One listener for every launch path. Both entrypoints previously built their own copy, so a fix
    * to any callback had to be made twice and the copies could drift.
+   *
+   * `mintFailure` is set when the signing-URL strategy fell back to fetch, so a fetch failure still
+   * carries what the mint learned.
    */
-  private fun captiveSigningListener() = object : DSCaptiveSigningListener {
+  private fun captiveSigningListener(mintFailure: Throwable? = null) = object : DSCaptiveSigningListener {
     override fun onStart(envelopeId: String) {}
 
     override fun onSuccess(envelopeId: String) {
@@ -366,7 +404,9 @@ internal object DocuSignManager {
     }
 
     override fun onError(envelopeId: String?, exception: DSSigningException) {
-      handleSigningError(envelopeId, "signing_failed", exception.message ?: "Unknown error")
+      handleSigningError(
+        signingFailure(envelopeId, exception, mintFailure, "DocuSign signing failed")
+      )
     }
 
     override fun onRecipientSigningSuccess(envelopeId: String, recipientId: String) {}
@@ -377,11 +417,34 @@ internal object DocuSignManager {
       exception: DSSigningException
     ) {
       handleSigningError(
-        envelopeId,
-        "recipient_signing_failed",
-        exception.message ?: "Unknown error"
+        signingFailure(envelopeId, exception, mintFailure, "DocuSign reported a recipient signing error")
       )
     }
+  }
+
+  /**
+   * A mint rejected with DocuSign's own error code, such as a recipient that does not match the
+   * envelope, names the real problem where the fetch path's error usually does not, so it is folded
+   * into the failure the caller finally receives.
+   */
+  private fun signingFailure(
+    envelopeId: String?,
+    error: Throwable,
+    mintFailure: Throwable?,
+    summary: String
+  ): DocuSignFailure {
+    val sdkDetails = FailureDetails.from(error)
+    val details = when (mintFailure) {
+      null -> sdkDetails
+      is DocuSignHttpException -> sdkDetails.withHttp(mintFailure)
+      else -> sdkDetails.withUnderlyingIfAbsent(mintFailure)
+    }
+    return DocuSignFailure(
+      code = "signing_failed",
+      message = "$summary: ${error.message ?: error.javaClass.simpleName}",
+      details = details,
+      envelopeId = envelopeId
+    )
   }
 
   /**
@@ -401,7 +464,8 @@ internal object DocuSignManager {
     activity: Activity,
     envelopeId: String,
     recipientClientUserId: String,
-    listener: DSCaptiveSigningListener
+    listener: DSCaptiveSigningListener,
+    mintFailure: Throwable? = null
   ) {
     try {
       DocuSign.getInstance().getCustomSettingsDelegate()
@@ -415,7 +479,11 @@ internal object DocuSignManager {
     } catch (e: Exception) {
       currentEnvelopeId = null
       val pending = pendingCompletion.getAndSet(null)
-      pending?.invoke(Result.failure(SigningFailedException(e.message ?: "Unknown error")))
+      pending?.invoke(
+        Result.failure(
+          signingFailure(envelopeId, e, mintFailure, "DocuSign could not open the signing ceremony")
+        )
+      )
     }
   }
 
@@ -439,12 +507,12 @@ internal object DocuSignManager {
     // Ahead of the compareAndSet on purpose: a rejected URL must not claim the pending slot, or a
     // later valid call would be refused as "already in progress".
     if (!isHttpsUrl(signingUrl)) {
-      completion(Result.failure(SigningFailedException("Signing URL must be a valid HTTPS URL")))
+      completion(Result.failure(InvalidSigningUrlException()))
       return
     }
 
     if (!pendingCompletion.compareAndSet(null, completion)) {
-      completion(Result.failure(SigningFailedException("A signing session is already in progress")))
+      completion(Result.failure(SigningInProgressException()))
       return
     }
     currentEnvelopeId = envelopeId
@@ -481,10 +549,16 @@ internal object DocuSignManager {
       } catch (e: Exception) {
         // A mint failure must not be worse than not offering the strategy at all. Falling back to
         // the fetch path restores the default behaviour exactly, so this can only add a way to
-        // succeed.
+        // succeed. The mint's failure rides along so a fetch failure still names it.
         activity.runOnUiThread {
           if (!canLaunchOn(activity, envelopeId, completion)) return@runOnUiThread
-          launchViaEnvelopeFetch(activity, envelopeId, recipientClientUserId, listener)
+          launchViaEnvelopeFetch(
+            activity,
+            envelopeId,
+            recipientClientUserId,
+            captiveSigningListener(mintFailure = e),
+            mintFailure = e
+          )
         }
         return@thread
       }
@@ -515,7 +589,11 @@ internal object DocuSignManager {
     } catch (e: Exception) {
       currentEnvelopeId = null
       val pending = pendingCompletion.getAndSet(null)
-      pending?.invoke(Result.failure(SigningFailedException(e.message ?: "Unknown error")))
+      pending?.invoke(
+        Result.failure(
+          signingFailure(envelopeId, e, null, "DocuSign could not open the signing ceremony")
+        )
+      )
     }
   }
 
@@ -586,7 +664,7 @@ internal object DocuSignManager {
       val stream = if (code in 200..299) connection.inputStream else connection.errorStream
       val text = stream?.bufferedReader()?.use { it.readText() } ?: ""
       if (code !in 200..299) {
-        throw IOException("recipient view request failed with HTTP $code")
+        throw DocuSignHttpException.from(code, text)
       }
       JSONObject(text).getString("url")
     } finally {
@@ -612,9 +690,9 @@ internal object DocuSignManager {
     pendingCompletion.getAndSet(null)?.invoke(Result.success(outcome))
   }
 
-  fun handleSigningError(envelopeId: String?, errorCode: String, errorMessage: String) {
-    module?.emitSigningError(envelopeId, errorCode, errorMessage)
+  /** The module emits onSigningError when it settles the failure, so this does not. */
+  fun handleSigningError(failure: DocuSignFailure) {
     currentEnvelopeId = null
-    pendingCompletion.getAndSet(null)?.invoke(Result.failure(SigningFailedException(errorMessage)))
+    pendingCompletion.getAndSet(null)?.invoke(Result.failure(failure))
   }
 }
