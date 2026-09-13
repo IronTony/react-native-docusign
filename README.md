@@ -94,7 +94,7 @@ The React Native layer never renders any of the signing UI. It only triggers the
 
 | Platform | Minimum OS           | SDK version                | Language    |
 | -------- | -------------------- | -------------------------- | ----------- |
-| iOS      | 15.1                 | DocuSign iOS SDK 4.1.1     | Swift 5.9   |
+| iOS      | 15.1                 | DocuSign iOS SDK 4.3.0     | Swift 5.9   |
 | Android  | API 24 (Android 7.0) | DocuSign Android SDK 2.1.7 | Kotlin 2.1+ |
 
 **Runtime requirements:**
@@ -107,7 +107,7 @@ The React Native layer never renders any of the signing UI. It only triggers the
 
 The DocuSign native SDKs are **NOT bundled** inside this npm package. They are declared as external dependencies and resolved at consumer build time:
 
-- **iOS**: `pod 'DocuSign-iOS-SDK', '~> 4.1.1'` from the public CocoaPods trunk
+- **iOS**: the `DocuSign` pod (`~> 4.3.0`) from the public CocoaPods trunk, declared by this package's podspec
 - **Android**: `com.docusign:androidsdk:2.1.7` from DocuSign's Maven repository (the config plugin adds the repo automatically)
 
 ### Android Glide collision workaround
@@ -182,7 +182,7 @@ npx expo run:android
 
 If you are not using Expo prebuild, you must manually:
 
-- **iOS**: add `pod 'DocuSign-iOS-SDK', '~> 4.1.1'` to your Podfile and run `pod install`
+- **iOS**: run `pod install`. This package's podspec already depends on the `DocuSign` pod, so your Podfile needs no entry for it
 - **Android**: add the Maven repo and the DocuSign dependency to your `android/build.gradle` + `android/app/build.gradle`
 - **iOS**: add the `NSCameraUsageDescription` and `NSPhotoLibraryUsageDescription` keys to your `Info.plist`
 - **Android**: add the required permissions to your `AndroidManifest.xml`
@@ -899,7 +899,7 @@ The config plugin writes these keys automatically, or you can configure them man
 
 ### iOS build fails with "No such module 'DocuSignSDK'"
 
-Ensure `pod install` completed successfully inside `ios/`. The podspec declares a dependency on `DocuSign-iOS-SDK`; if CocoaPods trunk is unreachable, the pod cannot be installed. Check your network, proxy, and CocoaPods version (`pod --version` should be 1.14+).
+Ensure `pod install` completed successfully inside `ios/`. The podspec declares a dependency on the `DocuSign` pod; if CocoaPods trunk is unreachable, the pod cannot be installed. Check your network, proxy, and CocoaPods version (`pod --version` should be 1.14+).
 
 ### iOS build fails with "Undefined symbols" for DSMManager
 
@@ -955,7 +955,7 @@ The module uses `appContext.activityProvider.currentActivity` to get the current
 | This package version | Expo SDK | React Native | iOS SDK            | Android SDK            |
 | -------------------- | -------- | ------------ | ------------------ | ---------------------- |
 | 1.0.x                | 55.x     | 0.82.x       | DocuSign iOS 4.1.1 | DocuSign Android 2.1.4 |
-| 2.0.x                | 55.x+    | 0.85.x+      | DocuSign iOS 4.1.1 | DocuSign Android 2.1.7 |
+| 2.0.x                | 55.x+    | 0.85.x+      | DocuSign iOS 4.3.0 | DocuSign Android 2.1.7 |
 
 ## Limitations
 
