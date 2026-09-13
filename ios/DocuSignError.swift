@@ -5,7 +5,7 @@ import ExpoModulesCore
 // when none is set, which would surface NotInitializedException to JS as ERR_NOT_INITIALIZED, not
 // the not_initialized documented in the README error table and emitted by the Android module.
 
-internal class InitializeFailedException: GenericException<String> {
+internal class InitializeFailedException: GenericException<String>, @unchecked Sendable {
   override var code: String {
     "initialize_failed"
   }
@@ -15,7 +15,7 @@ internal class InitializeFailedException: GenericException<String> {
   }
 }
 
-internal class SigningInProgressException: Exception {
+internal class SigningInProgressException: Exception, @unchecked Sendable {
   override var code: String {
     "signing_in_progress"
   }
@@ -25,7 +25,7 @@ internal class SigningInProgressException: Exception {
   }
 }
 
-internal class InvalidSigningUrlException: Exception {
+internal class InvalidSigningUrlException: Exception, @unchecked Sendable {
   override var code: String {
     "invalid_signing_url"
   }
@@ -35,7 +35,7 @@ internal class InvalidSigningUrlException: Exception {
   }
 }
 
-internal class NotInitializedException: Exception {
+internal class NotInitializedException: Exception, @unchecked Sendable {
   override var code: String {
     "not_initialized"
   }
@@ -45,7 +45,7 @@ internal class NotInitializedException: Exception {
   }
 }
 
-internal class NotLoggedInException: Exception {
+internal class NotLoggedInException: Exception, @unchecked Sendable {
   override var code: String {
     "not_logged_in"
   }
@@ -55,7 +55,7 @@ internal class NotLoggedInException: Exception {
   }
 }
 
-internal class PresentationException: GenericException<String> {
+internal class PresentationException: GenericException<String>, @unchecked Sendable {
   override var code: String {
     "presentation_failed"
   }
