@@ -88,7 +88,7 @@ internal final class DocuSignManager: NSObject {
     self.environment = environment
 
     let dispatchSetup: () -> Void = {
-      var configurations = DSMManager.defaultConfigurations() ?? [:]
+      var configurations = DSMManager.defaultConfigurations()
       if options.disablePoweredByBranding {
         configurations[DSM_SETUP_POWERED_BY_DOCUSIGN_ENABLED] = DSM_SETUP_FALSE_VALUE
       }

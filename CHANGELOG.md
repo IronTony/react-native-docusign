@@ -39,6 +39,7 @@ Upgrading from 1.x: every failure now rejects with a `DocuSignError`. Check any 
 
 ### Fixes
 
+- **iOS**: the module compiles without warnings under the Swift 6 compiler. Its exception classes restate the `@unchecked Sendable` conformance they inherit from Expo's `Exception`, and a `??` fallback on `DSMManager.defaultConfigurations()`, which never returns nil, is gone.
 - **iOS**: the view controller to present from is looked up on the main thread. The lookup read `UIApplication.shared` on the background queue the JS call arrived on.
 - **iOS**: a missing view controller settles the promise once. It previously completed the pending signing slot with a failure and also threw, rejecting the same call twice.
 - **iOS**: `endSigningSession` no longer calls `DSMManager` off the main thread. Expo dispatches a synchronous `AsyncFunction` body on a serial background queue, so `clearAllWebCookies()` and `logout()` were reached off-main on every call, including the one `useDocuSignSigning`'s `reset()` makes between flows. The guard now lives in `clearWebCookiesAsync`, the only method touching `DSMManager` and `WKWebsiteDataStore` directly, so it covers every caller. Thanks to @virajpsimformsolutions for finding and fixing this.
