@@ -80,6 +80,23 @@ const withDocuSignAndroidPermissions: ConfigPlugin = (config) => {
   });
 };
 
+function normalizeRepoUrl(url: string): string {
+  return url.trim().replace(/\/+$/, '');
+}
+
+const GRADLE_COMMENT_OR_STRING =
+  /\/\*[\s\S]*?\*\/|\/\/[^\n]*|"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'/g;
+
+function hasMavenRepo(contents: string, repo: string): boolean {
+  const target = normalizeRepoUrl(repo);
+  return Array.from(contents.matchAll(GRADLE_COMMENT_OR_STRING)).some(
+    ([, doubleQuoted, singleQuoted]) => {
+      const literal = doubleQuoted ?? singleQuoted;
+      return literal !== undefined && normalizeRepoUrl(literal) === target;
+    },
+  );
+}
+
 const withDocuSignAndroidMavenRepo: ConfigPlugin<DocuSignPluginProps> = (
   config,
   props,
@@ -97,7 +114,7 @@ const withDocuSignAndroidMavenRepo: ConfigPlugin<DocuSignPluginProps> = (
       return cfg;
     }
 
-    if (cfg.modResults.contents.includes(repo)) {
+    if (hasMavenRepo(cfg.modResults.contents, repo)) {
       return cfg;
     }
 

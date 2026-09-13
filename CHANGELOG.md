@@ -5,6 +5,7 @@
 ### Fixes
 
 - Bump `adm-zip`, the Config Plugin's only runtime dependency, to 0.6.1. This clears GHSA-xcpc-8h2w-3j85 (high) and GHSA-vwc7-r8mq-g2x9 (moderate) from consumers' `npm audit`. Neither was reachable: the plugin never extracts to disk, and it only parses the AAR it downloaded after checking its SHA-256, or its own cached copy under `node_modules`.
+- **Android**: the Config Plugin matches the maven repository URL exactly when deciding whether `android/build.gradle` already declares it, and ignores declarations inside `//` and `/* */` comments. The substring check it replaces skipped adding the repository when the URL appeared only in a comment or as the prefix of a longer URL. It was also the CodeQL `js/incomplete-url-substring-sanitization` alert.
 
 ## 2.0.0
 
