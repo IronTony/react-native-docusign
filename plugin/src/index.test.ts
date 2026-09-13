@@ -65,6 +65,19 @@ describe('withDocuSign android maven repository', () => {
     );
   });
 
+  it('changes build.gradle only by adding the DocuSign repository', async () => {
+    const original = buildProjectGradle([]);
+
+    const contents = await applyProjectBuildGradleMods(original);
+
+    expect(contents).toBe(
+      original.replace(
+        'allprojects {\n  repositories {',
+        `allprojects {\n  repositories {\n        maven { url "${DOCUSIGN_REPO}" }`,
+      ),
+    );
+  });
+
   it('adds androidMavenRepo instead of the DocuSign repository when provided', async () => {
     const contents = await applyProjectBuildGradleMods(buildProjectGradle([]), {
       androidMavenRepo: CUSTOM_REPO,

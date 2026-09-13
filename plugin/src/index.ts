@@ -132,53 +132,13 @@ const withDocuSignAndroidMavenRepo: ConfigPlugin<DocuSignPluginProps> = (
   });
 };
 
-const FLAT_DIR_MARKER = 'react-native-docusign-stripped-aar-flatdir';
-
-const withDocuSignAndroidStrippedAarFlatDir: ConfigPlugin = (config) =>
-  withProjectBuildGradle(config, (cfg) => {
-    if (cfg.modResults.language !== 'groovy') {
-      WarningAggregator.addWarningAndroid(
-        'react-native-docusign',
-        'android/build.gradle is Kotlin Script (.kts); cannot auto-inject the stripped sdk-pdf flatDir. Add this inside allprojects:\n  afterEvaluate {\n    rootProject.findProject(":react-native-docusign")?.let { docusignProject ->\n      repositories { flatDir { dirs("${docusignProject.projectDir}/libs") } }\n    }\n  }',
-      );
-      return cfg;
-    }
-
-    if (cfg.modResults.contents.includes(FLAT_DIR_MARKER)) {
-      return cfg;
-    }
-
-    const flatDirBlock = `  // ${FLAT_DIR_MARKER}: exposes the stripped sdk-pdf AAR bundled with react-native-docusign.
-  // The AAR has com.bumptech.glide.GeneratedAppGlideModuleImpl removed to prevent
-  // duplicate-class collisions with expo-image and other Glide-based libraries.
-  afterEvaluate {
-    def docusignProject = rootProject.findProject(':react-native-docusign')
-    if (docusignProject != null) {
-      repositories {
-        flatDir { dirs "\${docusignProject.projectDir}/libs" }
-      }
-    }
-  }`;
-
-    const allprojectsRegex = /(allprojects\s*\{(?:[^{}]|\{[^{}]*\})*)(\n\})/;
-    if (allprojectsRegex.test(cfg.modResults.contents)) {
-      cfg.modResults.contents = cfg.modResults.contents.replace(
-        allprojectsRegex,
-        `$1\n${flatDirBlock}$2`,
-      );
-    }
-
-    return cfg;
-  });
-
 /**
  * Downloads the upstream `com.docusign:sdk-pdf:2.1.7` AAR from DocuSign's
  * public Maven repository and strips the pre-generated
  * `com.bumptech.glide.GeneratedAppGlideModuleImpl` class from its
  * `classes.jar`. The stripped artifact is written to
- * `node_modules/react-native-docusign/android/libs/` so the existing flatDir
- * Gradle injection (added by `withDocuSignAndroidStrippedAarFlatDir`) can
- * resolve it at consumer build time.
+ * `node_modules/react-native-docusign/android/libs/`, where the module's
+ * `android/build.gradle` references it by file path at consumer build time.
  *
  * The strip prevents a duplicate-class collision at the consumer's
  * `mergeDexDebug` / `mergeDexRelease` step when the host app also includes
@@ -233,9 +193,8 @@ const withDocuSignAndroidStripDocusignSdkPdf: ConfigPlugin = (config) =>
   withDangerousMod(config, [
     'android',
     async (cfg) => {
-      // Resolve the installed package's android/libs/ directory so the
-      // `flatDir` injection (which references docusignProject.projectDir/libs)
-      // finds the stripped AAR.
+      // Resolve the installed package's android/libs/ directory, which the
+      // module's android/build.gradle references by file path.
       let packageRoot: string;
       try {
         const packageJsonPath = require.resolve(
@@ -289,7 +248,6 @@ const withDocuSign: ConfigPlugin<DocuSignPluginProps | void> = (
   updated = withDocuSignAndroidPermissions(updated);
   updated = withDocuSignAndroidMavenRepo(updated, resolvedProps);
   updated = withDocuSignAndroidStripDocusignSdkPdf(updated);
-  updated = withDocuSignAndroidStrippedAarFlatDir(updated);
   return updated;
 };
 
