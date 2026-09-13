@@ -40,6 +40,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
+      # The error-handling guide includes these files verbatim, so a type error
+      # here means the published documentation no longer compiles.
+      - run: npm run typecheck:examples
 
   test:
     runs-on: ubuntu-latest
@@ -51,4 +54,5 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm test
+      # With coverage, so the thresholds in jest.config.js are enforced.
+      - run: npm run test:coverage
