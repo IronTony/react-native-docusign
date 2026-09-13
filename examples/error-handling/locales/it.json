@@ -1,0 +1,11 @@
+{
+  "docusign": {
+    "errors": {
+      "network": "La connessione si è interrotta. Controlla la rete e riprova.",
+      "sessionExpired": "La sessione di firma è scaduta. Riprova.",
+      "unavailable": "La firma dei documenti non è disponibile al momento. Riprova più tardi.",
+      "contactSender": "Non riusciamo ad aprire questo documento. Contatta il mittente.",
+      "generic": "Si è verificato un errore durante l'apertura del documento. Riprova."
+    }
+  }
+}

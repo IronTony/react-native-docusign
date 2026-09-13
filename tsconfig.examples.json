@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "paths": {
+      "react-native-docusign": ["./src/index.ts"]
+    }
+  },
+  "include": ["./examples", "./src"],
+  "exclude": ["**/*.test.ts", "**/*.test.tsx", "node_modules", "build"]
+}

@@ -1,0 +1,11 @@
+{
+  "docusign": {
+    "errors": {
+      "network": "Your connection dropped. Check your internet and try again.",
+      "sessionExpired": "Your signing session expired. Please try again.",
+      "unavailable": "Document signing isn't available right now. Please try again later.",
+      "contactSender": "We couldn't open this document for you. Please contact the sender.",
+      "generic": "Something went wrong while opening the document. Please try again."
+    }
+  }
+}

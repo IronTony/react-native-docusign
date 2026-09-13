@@ -252,26 +252,29 @@ async function signAgreement() {
   });
 
   // Step 4: present the native signing UI
-  const result = await DocuSign.presentCaptiveSigning({
-    envelopeId: session.envelopeId,
-    recipientUserName: session.userName,
-    recipientEmail: session.email,
-    recipientClientUserId: session.recipientClientUserId,
-  });
+  try {
+    const result = await DocuSign.presentCaptiveSigning({
+      envelopeId: session.envelopeId,
+      recipientUserName: session.userName,
+      recipientEmail: session.email,
+      recipientClientUserId: session.recipientClientUserId,
+    });
 
-  switch (result.status) {
-    case 'completed':
+    if (result.status === 'completed') {
       console.log('Signed:', result.envelopeId);
-      break;
-    case 'cancelled':
+    } else {
       console.log('User cancelled signing');
-      break;
-    case 'error':
-      console.error('Signing error:', result.errorMessage);
-      break;
+    }
+  } catch (error) {
+    if (error instanceof DocuSign.DocuSignError) {
+      // error.reason picks the message to show, error.toAttributes() goes to your logs.
+      console.error(error.code, error.reason, error.message);
+    }
   }
 }
 ```
+
+Every failure rejects with a `DocuSignError`. See [Error handling](#error-handling).
 
 ## API reference
 
@@ -291,7 +294,7 @@ type DocuSignConfig = {
 - `integratorKey`: your DocuSign Integrator Key (Client ID). Can be fetched from your backend at runtime to avoid shipping it in the app bundle.
 - `environment`: `'demo'` targets `demo.docusign.net` (DocuSign developer sandbox). `'production'` targets `docusign.net`.
 
-**Throws:** rejects if the SDK cannot be initialized.
+**Throws:** a `DocuSignError` with `initialize_failed` if the SDK cannot be configured.
 
 ### `loginWithAccessToken(params: DocuSignAuthParams): Promise<void>`
 
@@ -317,7 +320,10 @@ type DocuSignAuthParams = {
 - `email`: email address for the signer
 - `host`: DocuSign API host URL (e.g. `'https://demo.docusign.net/restapi'`)
 
-**Throws:** rejects with `login_failed` if the token is invalid, expired, or rejected by DocuSign.
+**Throws:**
+
+- `not_initialized` if `initialize` has not been called
+- `login_failed` if DocuSign rejects the login. `reason` separates an expired or wrongly scoped token (`auth`) from a valid token DocuSign still refuses (`configuration`) and a lost connection (`network`). The package tells them apart by checking the same token against `/oauth/userinfo`.
 
 **Notes:** access tokens from DocuSign are typically valid for 1 hour. Do not cache them client-side. Fetch a fresh token for each signing session.
 
@@ -335,10 +341,10 @@ type CaptiveSigningParams = {
 };
 
 type SigningResult = {
-  status: 'completed' | 'cancelled' | 'error';
+  status: 'completed' | 'cancelled' | 'error'; // 'error' is never returned since 2.0.0
   envelopeId: string;
   errorCode?: string;
-  errorMessage?: string;
+  errorMessage?: string; // for 'cancelled', the SDK's exit reason when it gives one
 };
 ```
 
@@ -349,11 +355,13 @@ type SigningResult = {
 - `recipientClientUserId`: the `clientUserId` of the embedded recipient, used by DocuSign to identify captive signers
 - `launchStrategy`: how the Android SDK opens the ceremony, see [Android launch strategies](#android-launch-strategies). Ignored on iOS.
 
-**Throws:**
+**Throws:** a `DocuSignError`.
 
 - `not_initialized` if `initialize` has not been called
 - `not_logged_in` if `loginWithAccessToken` has not been called
-- `signing_failed` if the SDK fails to present the signing UI (e.g. invalid envelope, or a signing session already in progress)
+- `signing_in_progress` if a ceremony is already open
+- `presentation_failed` if there is no screen to present from
+- `signing_failed` if the ceremony cannot open or ends with an error. `reason` tells a lost connection (`network`), an expired token (`auth`) or a recipient that does not match the envelope (`recipient`) apart from an SDK error the package cannot classify (`unknown`).
 
 **Returns:** resolves with a `SigningResult` once the user completes or cancels. `status === 'completed'` means the user finished the signing ceremony. `status === 'cancelled'` means the user explicitly cancelled or closed the signing UI.
 
@@ -397,10 +405,13 @@ type CaptiveSigningUrlParams = {
 - `envelopeId`: the DocuSign envelope ID
 - `recipientId` (optional): identifier used for event correlation
 
-**Throws:**
+**Throws:** a `DocuSignError`.
 
 - `not_initialized` if `initialize` has not been called
-- `signing_failed` if the URL is blank or not `https`, or if it is expired or rejected by DocuSign
+- `invalid_signing_url` if the URL is blank or not `https`
+- `signing_in_progress` if a ceremony is already open
+- `presentation_failed` if there is no screen to present from
+- `signing_failed` if the URL is expired or rejected by DocuSign, with `reason` as for `presentCaptiveSigning`
 
 **Returns:** same `SigningResult` shape as `presentCaptiveSigning`.
 
@@ -450,8 +461,9 @@ const cancelSub = DocuSign.addSigningCancelledListener((event) => {
   console.log('Cancelled:', event.envelopeId, event.reason);
 });
 
-const errorSub = DocuSign.addSigningErrorListener((event) => {
-  console.error('Error:', event.errorCode, event.errorMessage);
+const errorSub = DocuSign.addSigningErrorListener((error) => {
+  // Every DocuSignError, caller mistakes included, once each and before the call rejects.
+  analytics.track('docusign_failed', error.toAttributes());
 });
 
 // Later, clean up:
@@ -459,6 +471,8 @@ completeSub.remove();
 cancelSub.remove();
 errorSub.remove();
 ```
+
+`addSigningErrorListener` covers `initialize`, `loginWithAccessToken`, `presentCaptiveSigning` and `presentCaptiveSigningWithUrl`. Register it once at startup to send every failure to your analytics or error reporting tool, as shown in the [error handling guide](docs/ERROR_HANDLING.md#sending-errors-to-your-tools).
 
 In React hooks:
 
@@ -512,7 +526,7 @@ function SigningScreen() {
       {state === 'signing' && <Text>Opening signing UI...</Text>}
       {state === 'completed' && <Text>Signed envelope {result?.envelopeId}</Text>}
       {state === 'cancelled' && <Text>Signing cancelled</Text>}
-      {state === 'error' && <Text>Error: {error?.message}</Text>}
+      {state === 'error' && error && <Text>{t(DOCUSIGN_ERROR_COPY_KEY[error.reason])}</Text>}
     </View>
   );
 }
@@ -525,7 +539,7 @@ function SigningScreen() {
   - `{ type: 'session', ... }`: runs `loginWithAccessToken` + `presentCaptiveSigning` (iOS + Android)
   - `{ type: 'url', ... }`: runs `presentCaptiveSigningWithUrl` (iOS + Android, no SDK login)
 - Tracks SDK state in a finite state machine
-- Subscribes to error events and surfaces them in the `error` field
+- Stores the latest `DocuSignError` in the `error` field. `DOCUSIGN_ERROR_COPY_KEY` in the usage example comes from the [error handling guide](docs/ERROR_HANDLING.md#copyts)
 - Cleans up event listeners on unmount
 
 ### URL-flow example (iOS + Android)
@@ -597,7 +611,7 @@ type UseDocuSignSigningOptions = {
 
 type UseDocuSignSigningReturn = {
   state: DocuSignSigningState;
-  error: Error | null;
+  error: DocuSignError | null;
   result: SigningResult | null;
   initialize: () => Promise<void>; // manual init if autoInitialize=false
   startSigning: (session: SigningSession) => Promise<SigningResult>;
@@ -635,6 +649,7 @@ export type CaptiveSigningParams = {
   recipientClientUserId: string;
 };
 
+// 'error' is never returned since 2.0.0. It stays so existing switch statements compile.
 export type SigningStatus = 'completed' | 'cancelled' | 'error';
 
 export type SigningResult = {
@@ -653,12 +668,36 @@ export type SigningCancelledEvent = {
   reason?: string;
 };
 
-export type SigningErrorEvent = {
+export class DocuSignError extends Error {
+  code: DocuSignErrorCode;
+  reason: DocuSignErrorReason;
   envelopeId?: string;
-  errorCode: string;
-  errorMessage: string;
-};
+  native?: DocuSignNativeErrorDetails;
+  http?: DocuSignHttpErrorDetails;
+  toAttributes(): DocuSignErrorAttributes;
+}
+
+export type DocuSignErrorCode =
+  | 'not_initialized'
+  | 'not_logged_in'
+  | 'signing_in_progress'
+  | 'invalid_signing_url'
+  | 'presentation_failed'
+  | 'initialize_failed'
+  | 'login_failed'
+  | 'signing_failed'
+  | 'unexpected';
+
+export type DocuSignErrorReason =
+  | 'usage'
+  | 'network'
+  | 'auth'
+  | 'configuration'
+  | 'recipient'
+  | 'unknown';
 ```
+
+The full error model, including `native`, `http` and the attributes, is in the [error handling guide](docs/ERROR_HANDLING.md#the-error-model).
 
 ## Authentication flow
 
@@ -794,34 +833,38 @@ Between signings, you can also show a confirmation prompt ("sign another documen
 
 ## Error handling
 
-The module rejects promises with coded exceptions you can inspect at the call site:
+Every failure rejects with a `DocuSignError`, on both platforms, with the same fields:
 
-| Error code          | When                                          | Mitigation                                                     |
-| ------------------- | --------------------------------------------- | -------------------------------------------------------------- |
-| `initialize_failed` | SDK failed to configure                       | Check integrator key and network connectivity                  |
-| `login_failed`      | Access token rejected, or Keychain misconfigured (iOS) | Fetch a fresh token from your backend; on iOS also verify `AppIdentifierPrefix` is set in `Info.plist` (see [Permissions](#permissions)) |
-| `signing_failed`    | SDK failed to present or complete signing     | Check envelope ID, recipient info, SDK login state             |
-| `not_initialized`   | `initialize()` was not called first           | Call `initialize()` before any other method                    |
-| `not_logged_in`     | `loginWithAccessToken()` was not called first | Call `loginWithAccessToken()` before `presentCaptiveSigning()` |
-| `presentation_failed` | No view controller available to present from (iOS) | Present from a mounted screen, not during a navigation transition |
+- `code` says what failed, such as `login_failed` or `signing_in_progress`. It is stable and safe to branch on.
+- `reason` says why: `usage`, `network`, `auth`, `configuration`, `recipient` or `unknown`. The package sets it only from facts it can verify, so it never guesses.
+- `message` is English text for developers. Never show it to users.
+- `native` and `http` carry the raw SDK error and any DocuSign response behind the failure.
+- `toAttributes()` flattens all of it into primitive values for Amplitude, New Relic, Sentry or any other tool.
 
-Both platforms emit these codes verbatim. Do not match on `ERR_`-prefixed variants.
-
-Example:
+The package shows no UI, ships no user-facing strings and logs nothing in production. Your app picks the copy from `reason` and decides where errors are recorded:
 
 ```ts
 try {
   await DocuSign.presentCaptiveSigning(params);
 } catch (error) {
-  if (error.code === 'not_logged_in') {
-    const session = await refreshSession();
-    await DocuSign.loginWithAccessToken(session);
-    // retry
-  } else {
-    reportError(error);
+  if (!(error instanceof DocuSign.DocuSignError)) throw error;
+  showToast({ title: t(DOCUSIGN_ERROR_COPY_KEY[error.reason]) });
+  if (error.reason === 'auth') {
+    await startOverWithFreshSession();
   }
 }
 ```
+
+| `reason` | Who fixes it | Suggested copy | Retry |
+| --- | --- | --- | --- |
+| `usage` | the app developer | generic | no, it is a bug |
+| `network` | nobody, the connection was lost | "Check your connection and try again." | yes |
+| `auth` | backend token minting | "Your signing session expired." | after a fresh session |
+| `configuration` | DocuSign admin, or `AppIdentifierPrefix` on iOS | "Signing isn't available right now." | no |
+| `recipient` | backend envelope creation | "Please contact the sender." | no |
+| `unknown` | investigate with `native` | generic | yes |
+
+The [error handling guide](docs/ERROR_HANDLING.md) covers the full error model, translated copy with i18next, a retry policy, sending errors to Amplitude, New Relic and Sentry, the dashboards and queries to read them in production, and worked examples for every reason. Its code samples are type-checked in CI.
 
 ## Security considerations
 
@@ -880,11 +923,11 @@ The SDK login state is in-memory and does not survive app restarts. Always call 
 
 ### Access token expired mid-signing
 
-DocuSign access tokens are valid for about 1 hour. If a token expires while the signing UI is open, the SDK emits an error event and the promise rejects. Catch the error, fetch a fresh session from your backend, and retry.
+DocuSign access tokens are valid for about 1 hour. If a token expires while the signing UI is open, the promise rejects with a `DocuSignError`. Catch it, fetch a fresh session from your backend, and start over rather than retrying the same session.
 
 ### `login_failed` on iOS even with a valid token
 
-If `loginWithAccessToken` rejects with `login_failed` (or the SDK logs "unauthorized") but the same token works on Android, the most likely cause is a missing `AppIdentifierPrefix` entry in your `Info.plist`.
+If `loginWithAccessToken` rejects with `login_failed` and `reason: 'configuration'`, DocuSign accepted the token at `/oauth/userinfo` but the SDK still refused it. When the same token works on Android, the most likely cause is a missing `AppIdentifierPrefix` entry in your `Info.plist`.
 
 The DocuSign iOS SDK uses the Apple Keychain to store auth state. Without `AppIdentifierPrefix`, it cannot access the Keychain group and rejects the login at the SDK level, regardless of token validity.
 
