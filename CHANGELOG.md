@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.1
+
+### Fixes
+
+- **Android**: the module ships R8 keep rules for the models in DocuSign's `sdk-esign-api`. DocuSign's own rules cover `com.docusign.androidsdk` only, so an app with minification on lost the fields Gson fills on those models, and login and captive signing failed at runtime without a crash at launch. The rules reach the app through `consumerProguardFiles`, so an app can delete any DocuSign keep rules it added itself.
+
 ## 2.0.0
 
 Upgrading from 1.x: every failure now rejects with a `DocuSignError`. Check any code that branches on `error.code`, matches message text, handles `status: 'error'` from `presentCaptiveSigning*`, or reads `errorCode` in an `addSigningErrorListener` callback. Codes are the lowercase codes the README documents, on both platforms, where iOS previously emitted `ERR_`-prefixed variants and Android rejected most failures as `signing_failed`. The new Android `launchStrategy` is opt-in. Both native SDKs also move forward, see [Native SDKs](#native-sdks) for what that changes in your app.
