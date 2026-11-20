@@ -1,5 +1,11 @@
 # Changelog
 
+## Next
+
+### Native SDKs
+
+- **iOS**: DocuSign iOS SDK 4.3.0 to 4.4.0. For some accounts, DocuSign now returns recipient view URLs such as `https://apps-d.docusign.com/authenticate?code=...` instead of a `Signing/MTRedeem` URL. DocuSign 4.3.0 only opens `Signing/MTRedeem` URLs, so `presentCaptiveSigningWithUrl` rejected these with a `DocuSignError` whose message contains `has invalid captive signing url`. DocuSign 4.4.0 opens both, and lists the fix as "Captive (embedded) signing fails to launch for certain accounts". It raises the SDK's minimum to iOS 15.0, below this module's 15.1. A project with a committed `Podfile.lock` needs `pod update DocuSign`.
+
 ## 2.0.1
 
 ### Fixes
