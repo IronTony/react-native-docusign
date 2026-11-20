@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Native SDKs
+
+- **iOS**: DocuSign iOS SDK 4.3.0 to 4.4.0, which fixes captive (embedded) signing failing to launch for certain accounts. With a committed `Podfile.lock`, run `pod update DocuSign`.
+
 ## 2.0.1
 
 ### Fixes
