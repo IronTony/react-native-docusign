@@ -94,7 +94,7 @@ The React Native layer never renders any of the signing UI. It only triggers the
 
 | Platform | Minimum OS           | SDK version                | Language    |
 | -------- | -------------------- | -------------------------- | ----------- |
-| iOS      | 15.1                 | DocuSign iOS SDK 4.3.0     | Swift 5.9   |
+| iOS      | 15.1                 | DocuSign iOS SDK 4.4.0     | Swift 5.9   |
 | Android  | API 24 (Android 7.0) | DocuSign Android SDK 2.1.7 | Kotlin 2.1+ |
 
 **Runtime requirements:**
@@ -107,7 +107,7 @@ The React Native layer never renders any of the signing UI. It only triggers the
 
 The DocuSign native SDKs are **NOT bundled** inside this npm package. They are declared as external dependencies and resolved at consumer build time:
 
-- **iOS**: the `DocuSign` pod (`~> 4.3.0`) from the public CocoaPods trunk, declared by this package's podspec
+- **iOS**: the `DocuSign` pod (`~> 4.4.0`) from the public CocoaPods trunk, declared by this package's podspec
 - **Android**: `com.docusign:androidsdk:2.1.7` from DocuSign's Maven repository (the config plugin adds the repo automatically)
 
 ### Android Glide collision workaround
