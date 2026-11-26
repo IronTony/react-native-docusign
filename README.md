@@ -259,9 +259,9 @@ async function signAgreement() {
   try {
     const result = await DocuSign.presentCaptiveSigning({
       envelopeId: session.envelopeId,
-      recipientUserName: session.userName,
-      recipientEmail: session.email,
-      recipientClientUserId: session.recipientClientUserId,
+      recipientUserName: session.recipientName,
+      recipientEmail: session.recipientEmail,
+      recipientClientUserId: session.clientUserId,
     });
 
     if (result.status === 'completed') {
@@ -568,9 +568,9 @@ const result = await startSigning({
   email: sessionFromBackend.email,
   host: sessionFromBackend.host,
   envelopeId: sessionFromBackend.envelopeId,
-  recipientUserName: sessionFromBackend.userName,
-  recipientEmail: sessionFromBackend.email,
-  recipientClientUserId: sessionFromBackend.recipientClientUserId,
+  recipientUserName: sessionFromBackend.recipientName,
+  recipientEmail: sessionFromBackend.recipientEmail,
+  recipientClientUserId: sessionFromBackend.clientUserId,
 });
 ```
 
@@ -789,9 +789,9 @@ async function signMultipleDocuments(documents: Document[]) {
     await DocuSign.loginWithAccessToken(session);
     const result = await DocuSign.presentCaptiveSigning({
       envelopeId: session.envelopeId,
-      recipientUserName: session.userName,
-      recipientEmail: session.email,
-      recipientClientUserId: session.recipientClientUserId,
+      recipientUserName: session.recipientName,
+      recipientEmail: session.recipientEmail,
+      recipientClientUserId: session.clientUserId,
     });
     results.push(result);
 
@@ -817,9 +817,9 @@ async function signMultipleDocumentsSafe(documents: Document[]) {
       await DocuSign.loginWithAccessToken(session);
       const result = await DocuSign.presentCaptiveSigning({
         envelopeId: session.envelopeId,
-        recipientUserName: session.userName,
-        recipientEmail: session.email,
-        recipientClientUserId: session.recipientClientUserId,
+        recipientUserName: session.recipientName,
+        recipientEmail: session.recipientEmail,
+        recipientClientUserId: session.clientUserId,
       });
       results.push(result);
 
