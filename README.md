@@ -515,7 +515,19 @@ function SigningScreen() {
     const session = await fetchSigningSessionFromYourBackend();
 
     // Hook handles loginWithAccessToken + presentCaptiveSigning + state transitions
-    const result = await startSigning(session);
+    const result = await startSigning({
+      type: 'session',
+      accessToken: session.accessToken,
+      accountId: session.accountId,
+      userId: session.userId,
+      userName: session.userName,
+      email: session.email,
+      host: session.host,
+      envelopeId: session.envelopeId,
+      recipientUserName: session.recipientName,
+      recipientEmail: session.recipientEmail,
+      recipientClientUserId: session.clientUserId,
+    });
 
     if (result.status === 'completed') {
       // Navigate to confirmation
