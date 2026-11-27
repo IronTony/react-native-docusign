@@ -972,7 +972,7 @@ The module uses `appContext.activityProvider.currentActivity` to get the current
 | -------------------- | -------- | ------------ | ------------------ | ---------------------- |
 | 1.0.x                | 55.x     | 0.82.x       | DocuSign iOS 4.1.1 | DocuSign Android 2.1.4 |
 | 2.0.0–2.0.1          | 55.x+    | 0.85.x+      | DocuSign iOS 4.3.0 | DocuSign Android 2.1.7 |
-| Next (unreleased)    | 55.x+    | 0.85.x+      | DocuSign iOS 4.4.0 | DocuSign Android 2.1.7 |
+| 2.0.2                | 55.x+    | 0.85.x+      | DocuSign iOS 4.4.0 | DocuSign Android 2.1.7 |
 
 ## Limitations
 

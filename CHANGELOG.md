@@ -1,6 +1,6 @@
 # Changelog
 
-## Next
+## 2.0.2
 
 ### Native SDKs
 
