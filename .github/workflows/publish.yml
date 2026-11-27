@@ -1,0 +1,76 @@
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  pack:
+    if: github.repository == 'IronTony/react-native-docusign' && !github.event.release.prerelease && !github.event.release.draft
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Verify the release tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          version="$(node -p "require('./package.json').version")"
+          test "$RELEASE_TAG" = "v$version"
+          test "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+      - name: Install, validate and build
+        run: |
+          # The existing lockfile needs npm 10 for a clean install.
+          npx --yes npm@10.9.11 ci --no-audit --no-fund
+          npm run lint
+          npm run typecheck:examples
+          npm run build
+          npm run test:coverage -- --runInBand
+      - name: Pack the tested release
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP"
+          version="$(node -p "require('./package.json').version")"
+          mv "$RUNNER_TEMP/react-native-docusign-$version.tgz" "$RUNNER_TEMP/package.tgz"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-release-tarball
+          path: ${{ runner.temp }}/package.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: pack
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-release-tarball
+      - name: Publish with npm Trusted Publishing
+        run: |
+          node -e 'const [a,b,c]=process.argv[1].split(".").map(Number); if (!(a>11 || (a===11 && (b>5 || (b===5 && c>=1))))) throw Error("Trusted Publishing requires npm 11.5.1 or newer")' "$(npm --version)"
+          # npm must trust IronTony/react-native-docusign, publish.yml, with npm publish enabled.
+          npm publish ./package.tgz --tag latest --ignore-scripts
